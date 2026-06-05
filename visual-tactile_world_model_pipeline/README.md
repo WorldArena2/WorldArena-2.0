@@ -86,15 +86,19 @@ bash train/val_tactile_multiview_head.sh
 We provide evaluation scripts under the `metric/` directory for both visual quality and action prediction:
 
 - **Visual validation (PSNR / SSIM):**
+
   ```bash
   python metric/val_psnr_ssim.py --dataroot <path_to_results> --output_json results.json
   ```
+
   Computes PSNR and SSIM between generated videos and ground-truth videos.
 
 - **Action offline reference validation (MSE / NATSR):**
+
   ```bash
   python metric/eval_action_offline.py --dataroot <path_to_results> --output_json action_metrics.json --natsr_threshold 0.1
   ```
+
   Evaluates end-effector action prediction accuracy using Mean Squared Error (MSE) and Normalized Action Success Rate (NATSR).
 
 Please refer to the individual scripts for additional command-line options.
