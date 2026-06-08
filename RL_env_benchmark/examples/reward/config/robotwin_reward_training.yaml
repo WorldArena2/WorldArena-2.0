@@ -1,0 +1,110 @@
+defaults:
+  - override hydra/job_logging: stdout
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+cluster:
+  num_nodes: 1
+  component_placement:
+    actor: 0-0
+
+runner:
+  task_type: sft   # SFTRunner drives the training loop
+  logger:
+    log_path: "logs/robotwin_reward_model_adjust_bottle"
+    project_name: rlinf
+    experiment_name: "robotwin_reward_training"
+    logger_backends: ["wandb"]
+
+  max_epochs: 20000
+  max_steps: -1
+  val_check_interval: 20    # validate every N training steps
+  save_interval: 20
+
+  # Early stopping – monitors val_loss
+  early_stop:
+    enabled: true
+    patience: 10            # stop after 10 val checks without improvement
+    min_delta: 0.001        # minimum loss drop to count as improvement
+    monitor: "val_loss"
+
+data:
+  # Paths to preprocessed split files.
+  # Generate them first:
+  #   python examples/reward/preprocess_robotwin_reward_dataset.py \
+  #       --data-root /manifold-obs/wzl/vla_robotwin_4k_320/10radiodata_10000/adjust_bottle/demo_clean \
+  #       --output-dir logs/robotwin_reward_data
+  train_data_paths: "/manifold-obs/tangyinzhou/RLinf/logs/robotwin_reward_data_adjust_bottle/train.pt"
+  val_data_paths:   "/manifold-obs/tangyinzhou/RLinf/logs/robotwin_reward_data_adjust_bottle/val.pt"
+  num_workers: 4
+
+actor:
+  group_name: "RoboTwinRewardActorGroup"
+  training_backend: "fsdp"
+  micro_batch_size: 256
+  global_batch_size: 1024
+  seed: 42
+  enable_offload: false
+
+  # Model configuration
+  model:
+    model_type: "robotwin_t5_crossattn"
+
+    # Path to a pre-trained or fine-tuned checkpoint.
+    # Leave null to start from ImageNet-pretrained ResNet + random heads.
+    model_path: null
+
+    # T5 encoder settings
+    # Set to a local directory when running without internet access.
+    t5_model_name: "t5-base"
+    freeze_t5: true           # keep T5 frozen (only train visual + attn + head)
+    max_text_length: 64
+
+    # Cross-attention
+    num_attn_heads: 8
+    attn_dropout: 0.0
+
+    # MLP reward head
+    hidden_dim: 256
+    head_dropout: 0.1
+
+    # Image pre-processing (must match preprocess script settings)
+    image_size: [3, 224, 224]
+    normalize: true
+
+    # Required by BaseRewardModel / FSDP infra (not used for training dtype)
+    precision: "fp32"
+
+    # Unused by this model – kept for schema compatibility with FSDP worker
+    add_value_head: false
+    is_lora: false
+    freeze_vit: false
+    use_flash_attention: false
+
+  # Optimiser  (only trains ResNet backbone + cross-attn + head; T5 frozen)
+  optim:
+    lr: 3.0e-4
+    value_lr: 3.0e-4
+    adam_beta1: 0.9
+    adam_beta2: 0.999
+    adam_eps: 1.0e-8
+    weight_decay: 1.0e-4
+    clip_grad: 1.0
+    lr_warmup_steps: 50
+    warmup_style: "constant"
+    total_training_steps: 5000
+
+  # FSDP – use no_shard (replicated) since the model is small
+  fsdp_config:
+    strategy: "fsdp"
+    sharding_strategy: "no_shard"
+    use_orig_params: true
+    gradient_checkpointing: false
+
+    mixed_precision:
+      param_dtype: null
+      reduce_dtype: null
+      buffer_dtype: null

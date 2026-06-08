@@ -1,0 +1,138 @@
+# Ctrl-World (SVD-based) world-model environment config for RobotWin click_bell task.
+# Pairs with: ctrlworld_robotwin_click_bell_grpo_openpi_pi05.yaml
+#
+# Ctrl-World pipeline:
+#   encode : Ctrl-World/dataset_example/extract_latent_robotwin.py  -> annotation/ + latent_videos/
+#   train  : Ctrl-World training scripts                             -> checkpoint-*.pt
+#   infer  : CtrlWorldEnv (this file)                               -> online RL rollout
+
+env_type: ctrlworld_wm
+wm_env_type: robotwin
+task_suite_name: click_bell
+
+total_num_envs: null   # overridden in training config
+
+auto_reset: False
+ignore_terminations: False
+
+use_rel_reward: True
+reward_coef: 1.0
+
+seed: 0
+group_size: 1
+use_fixed_reset_state_ids: True
+
+is_eval: False
+
+max_episode_steps: 200
+max_steps_per_rollout_epoch: 200
+
+success_reward_threshold: 0.9
+
+# ──────────────────────────────────────────────────────────────────────
+# Ctrl-World generation parameters
+# ──────────────────────────────────────────────────────────────────────
+# chunk MUST match actor.num_action_chunks and actor.openpi.action_chunk.
+# Ctrl-World num_frames=5, which differs from Wan/OpenSora (chunk=8).
+chunk: 5
+
+# Number of history frames fed as conditioning to the SVD UNet
+num_history: 6
+
+# Output resolution after VAE decode + resize
+image_size: [256, 256]
+
+# SVD native resolution (used for pipeline height/width)
+height: 192
+width: 320
+
+# Action dimension for RobotWin 14-DoF absolute control
+action_dim: 14
+# OpenPI/Aloha outputs [L6, Lg, R6, Rg], while Ctrl-World robotwin training
+# uses reordered [L6, R6, Lg, Rg]. Keep this enabled unless your Ctrl-World
+# checkpoint was trained with the original Aloha order.
+reorder_robotwin_action_for_ctrlworld: true
+
+# Non-uniform history sampling indices into image_queue.
+# Mirrors rollout_robotwin_click_bell.py line ~130.
+history_idx: [0, 0, -8, -6, -4, -2]
+
+# SVD diffusion steps (reduce to ~5-10 for faster training rollouts)
+num_inference_steps: 50
+guidance_scale: 1.0
+decode_chunk_size: 7
+
+# SVD pipeline hyper-parameters
+motion_bucket_id: 127
+fps: 7
+text_cond: True
+frame_level_cond: True
+his_cond_zero: False
+
+# ──────────────────────────────────────────────────────────────────────
+# Model paths  (fill in / verify before launching)
+# ──────────────────────────────────────────────────────────────────────
+
+# Ctrl-World repository root (added to sys.path for model imports)
+ctrlworld_repo_path: /your/path//RLinf/Ctrl-World
+
+# Stable Video Diffusion base model (used by CrtlWorld.__init__)
+svd_model_path: /your/path//RLinf/Ctrl-World/stable-video-diffusion-img2vid
+
+# CLIP text encoder (used by Action_encoder2)
+clip_model_path: /your/path//RLinf/Ctrl-World/clip-vit-base-patch32
+
+# Trained Ctrl-World checkpoint (.pt state dict)
+ctrlworld_ckpt_path: /your/path//RLinf/Ctrl-World/model_ckpt/robotwin_click_bell/checkpoint-80000.pt
+
+# Action normalisation statistics produced by extract_latent_robotwin.py
+# Format: {"state_01": [...14 floats...], "state_99": [...14 floats...]}
+data_stat_path: /your/path//RLinf/Ctrl-World/dataset_meta_info/robotwin_click_bell/stat.json
+
+# Dataset root: contains annotation/, latent_videos/, videos/
+# (produced by extract_latent_robotwin.py)
+initial_image_path: /your/path//RLinf/Ctrl-World/dataset_example/robotwin_click_bell
+data_type: val
+
+# ──────────────────────────────────────────────────────────────────────
+# Reward model
+# ──────────────────────────────────────────────────────────────────────
+reward_model:
+  # 可选:
+  # 1) RoboTwinT5CrossAttn           (原有cross-attn reward)
+  # 2) QwenVLMProgressRewardModel    (VLM进度/置信度 reward)
+
+  # ---- RoboTwinT5CrossAttn 配置 (type=RoboTwinT5CrossAttn 时生效) ----
+  # type: RoboTwinT5CrossAttn
+  # from_pretrained: /manifold-obs/tangyinzhou/RLinf/diffsynth-studio/RLinf-Wan-RobotWin-ClickBell/resnet_rm.pth
+  # t5_model_name: /your/path//RLinf/pretrained_models/t5-base
+
+  # ---- QwenVLMProgressRewardModel 配置 (type=QwenVLMProgressRewardModel 时生效) ----
+  # local_hf: 进程内加载HF模型；
+  # openai_api/vllm_service/sglang_service: 请求外部OpenAI兼容服务
+  type: QwenVLMProgressRewardModel
+  inference_backend: sglang_service
+  model_path: "/your/path//RLinf/Qwen3.5-9B"
+  openai_api_base: "http://127.0.0.1:8000/v1"
+  openai_api_key: "EMPTY"
+  service_model_name: "Qwen3.5-9B"
+  request_timeout: 30.0
+  max_retries: 2
+  dtype: bfloat16
+  max_new_tokens: 64
+  temperature: 0.0
+  response_key: score
+  default_score: 0.0
+  force_json_response: True
+  print_vlm_response: True
+  log_chunk_size: 8
+
+# ──────────────────────────────────────────────────────────────────────
+# Video logging
+# ──────────────────────────────────────────────────────────────────────
+video_cfg:
+  save_video: True
+  video_base_dir: ${runner.logger.log_path}/video/train
+
+enable_offload: False
+print_chunk_rewards: True
