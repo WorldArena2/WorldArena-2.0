@@ -273,13 +273,13 @@ YAML 配置说明
    * - ``env.eval.use_spacemouse``
      - ``True``
      - 在采集过程中启用 SpaceMouse 遥操作。
-   * - ``env.data_collection.save_dir``
+   * - ``env.eval.data_collection.save_dir``
      - ``${runner.logger.log_path}/collected_data``
      - 采集数据的保存目录。
-   * - ``env.data_collection.export_format``
+   * - ``env.eval.data_collection.export_format``
      - ``"lerobot"``
      - 采集数据的导出格式。
-   * - ``env.data_collection.only_success``
+   * - ``env.eval.data_collection.only_success``
      - ``True``
      - 仅保存成功的 episode。
 
@@ -354,7 +354,7 @@ YAML 配置说明
    所有依赖，然后再启动 Ray。
 
 关于多节点 Ray 配置的详细信息，请参考 :doc:`franka` 和
-:doc:`../../tutorials/advance/hetero`。
+:doc:`../../tutorials/configuration/hetero`。
 
 
 故障排查

@@ -348,9 +348,9 @@ recorder:
 seed: 0
 use_vr: true
 data_path: data
-save_dir: /home/meeso/recordings
+save_dir: /path/to/recordings
 record: true
-load_dir: /work/dlclarge2/meeso-lfp/calvin_recordings/play_env_A/2021-09-12/11-36-05/
+load_dir: /path/to/calvin_recordings/play_env_A/2021-09-12/11-36-05/
 show_gui: false
 processes: 16
 max_episode_frames: 1

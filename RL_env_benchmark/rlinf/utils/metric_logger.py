@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-from numbers import Number
 
 from omegaconf import DictConfig, OmegaConf
 
@@ -34,28 +33,6 @@ class _TensorboardLogger:
 
 class MetricLogger:
     supported_logger = ["wandb", "swanlab", "tensorboard"]
-    metric_aliases = {
-        "train/actor/total_loss": "loss/total",
-        "train/actor/policy_loss": "loss/policy",
-        "train/actor/entropy_loss": "loss/entropy",
-        "train/actor/approx_kl": "kl/approx",
-        "train/actor/proximal_approx_kl": "kl/proximal",
-        "train/actor/behav_approx_kl": "kl/behavior",
-        "train/actor/clip_fraction": "clip/fraction",
-        "train/actor/dual_clip_fraction": "clip/dual_fraction",
-        "train/actor/grad_norm": "optim/grad_norm",
-        "train/actor/lr": "optim/lr",
-        "env/return": "performance/return",
-        "env/reward": "performance/reward",
-        "env/success_once": "performance/success_once",
-        "env/episode_len": "performance/episode_len",
-        "rollout/rewards": "rollout/reward_mean",
-        "time/step": "speed/step_time",
-        "time/generate_rollouts": "speed/generate_rollouts",
-        "time/env/run_interact_once": "speed/env_interact_once",
-        "time/rollout/generate_one_epoch": "speed/rollout_generate_one_epoch",
-        "time/actor/run_training": "speed/actor_train_once",
-    }
 
     def __init__(self, cfg: DictConfig):
         self.cfg = cfg
@@ -103,33 +80,17 @@ class MetricLogger:
             wandb_log_path = os.path.join(log_path, "wandb", log_path_suffix)
             os.makedirs(wandb_log_path, exist_ok=True)
 
-            settings_kwargs = {"console": "off"}
+            settings = None
             if self.wandb_proxy:
-                settings_kwargs["https_proxy"] = self.wandb_proxy
-            settings = wandb.Settings(**settings_kwargs)
+                settings = wandb.Settings(https_proxy=self.wandb_proxy)
             wandb.init(
                 project=self.project_name,
                 name=experiment_name,
                 config=self.config,
                 settings=settings,
                 dir=wandb_log_path,
-                reinit="finish_previous",
+                reinit=True,
             )
-            wandb.define_metric("global_step")
-            for metric_pattern in [
-                "train/*",
-                "env/*",
-                "rollout/*",
-                "time/*",
-                "eval/*",
-                "loss/*",
-                "kl/*",
-                "clip/*",
-                "optim/*",
-                "performance/*",
-                "speed/*",
-            ]:
-                wandb.define_metric(metric_pattern, step_metric="global_step")
             logger["wandb"] = wandb
 
         if "swanlab" in self.logger_backends:

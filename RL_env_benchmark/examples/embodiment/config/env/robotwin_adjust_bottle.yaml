@@ -7,17 +7,17 @@ ignore_terminations: False
 reward_coef: 1.0
 use_custom_reward: True
 use_rel_reward: True
-center_crop: False
+center_crop: True
 
 seed: 0
 group_size: 1
 use_fixed_reset_state_ids: False
-max_steps_per_rollout_epoch: 600
-max_episode_steps: 600 # max episode steps for truncation
+max_steps_per_rollout_epoch: 200
+max_episode_steps: 200 # max episode steps for truncation
 
 is_eval: False
 
-assets_path: "/your/path//RLinf/RoboTwin"
+assets_path: "/path/to/robotwin_assets"
 seeds_path: "/path/to/robotwin/train_seeds.json"
 
 video_cfg:
@@ -29,7 +29,7 @@ enable_offload: False
 
 task_config:
   task_name: adjust_bottle
-  step_lim: 600
+  step_lim: 200
   planner_backend: mplib # # Choices: ["curobo", "mplib"], defalut is "curobo"
   # if you want to modify the config, please check the following tutorial first:
   # https://robotwin-platform.github.io/doc/usage/configurations.html
@@ -37,7 +37,7 @@ task_config:
   episode_num: 100
   use_seed: false
   save_freq: 15
-  embodiment: [aloha-agilex]
+  embodiment: [piper, piper, 0.6]
   language_num: 100
   domain_randomization:
     random_background: true
@@ -65,6 +65,6 @@ task_config:
   pcd_down_sample_num: 1024
   pcd_crop: true
   save_path: ./data
-  clear_cache_freq: 8
+  clear_cache_freq: 1
   collect_data: true
   eval_video_log: true

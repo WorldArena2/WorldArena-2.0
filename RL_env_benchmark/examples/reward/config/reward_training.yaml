@@ -14,12 +14,12 @@ cluster:
 runner:
   task_type: sft  # Use SFT runner for reward training
   logger:
-    log_path: "logs/reward_model_adjust_bottle"
+    log_path: "logs/reward_model"
     project_name: rlinf
     experiment_name: "reward_training"
     logger_backends: ["tensorboard"]
 
-  max_epochs: 8000
+  max_epochs: 800
   max_steps: -1
   val_check_interval: 50
   save_interval: 50

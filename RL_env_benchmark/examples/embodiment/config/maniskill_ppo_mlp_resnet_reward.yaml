@@ -7,6 +7,7 @@ defaults:
   - env/maniskill_pick_cube@env.eval
   - model/mlp_policy@actor.model  # Use MLP policy with state
   - training_backend/fsdp@actor.fsdp_config
+  - weight_syncer/patch_syncer@weight_syncer
   - override hydra/job_logging: stdout
 
 hydra:
@@ -82,6 +83,9 @@ algorithm:
     max_new_token: 7
     max_length: 1024
     min_length: 1
+
+data:
+  rollout_batch_size: 128
 
 env:
   group_name: "EnvGroup"

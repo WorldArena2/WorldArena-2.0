@@ -1,7 +1,7 @@
 #! /bin/bash
 
 set -eo pipefail
-export UV_CACHE_DIR=/your/path//RLinf/uv_cache
+export UV_CACHE_DIR=${UV_CACHE_DIR:-$(pwd)/uv_cache}
 TARGET=""
 
 MODEL=""

@@ -12,14 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Single-view RoboTwin / Aloha data config for pi0 / pi05.
-
-Unlike :class:`LeRobotAlohaDataConfig`, this config only feeds the head
-camera to the model. The pi0/pi05 backbone always has three image slots;
-:class:`AlohaInputs` handles a missing wrist view by filling it with a
-zero image and setting the corresponding ``image_mask`` to False, so we
-simply never emit the wrist keys from the dataset.
-"""
+"""Single-view RoboTwin / Aloha data config for pi0 / pi05."""
 
 import dataclasses
 import pathlib
@@ -35,21 +28,12 @@ from rlinf.models.embodiment.openpi.policies import aloha_policy
 
 @dataclasses.dataclass(frozen=True)
 class LeRobotAlohaHeadOnlyDataConfig(DataConfigFactory):
-    """Aloha/RoboTwin data config that uses a single (head) camera view."""
+    """Aloha/RoboTwin data config that uses a single head camera view."""
 
-    # Default prompt to use if the dataset does not contain prompt information.
     default_prompt: str | None = None
-
-    # If True, converts absolute joint actions to delta actions (relative to
-    # the current state). Kept aligned with the multi-view RoboTwin config.
     extra_delta_transform: bool = True
-
-    # If True, remaps data into the internal Pi0 space (joint flip, gripper
-    # scaling). Leave False for standard RoboTwin data.
     adapt_to_pi: bool = False
 
-    # Only the head camera is repacked. cam_left_wrist / cam_right_wrist are
-    # intentionally omitted; AlohaInputs will substitute zeros and mask them.
     repack_transforms: _transforms.Group = dataclasses.field(
         default_factory=lambda: _transforms.Group(
             inputs=[
@@ -85,9 +69,6 @@ class LeRobotAlohaHeadOnlyDataConfig(DataConfigFactory):
             outputs=[aloha_policy.AlohaOutputs(adapt_to_pi=self.adapt_to_pi)],
         )
 
-        # Same 14-dim mask as the multi-view RoboTwin config:
-        # [Left arm 6 joints (delta), left gripper (abs),
-        #  Right arm 6 joints (delta), right gripper (abs)].
         if self.extra_delta_transform:
             delta_action_mask = np.array(
                 [True] * 6 + [False] + [True] * 6 + [False],

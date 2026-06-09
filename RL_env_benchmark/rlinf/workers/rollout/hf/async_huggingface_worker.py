@@ -13,12 +13,10 @@
 # limitations under the License.
 
 import asyncio
-import gc
 
-import torch
 from omegaconf.omegaconf import DictConfig
 
-from rlinf.scheduler import Channel
+from rlinf.scheduler import Channel, Worker
 from rlinf.workers.rollout.hf.huggingface_worker import MultiStepRolloutWorker
 
 
@@ -45,6 +43,7 @@ class AsyncMultiStepRolloutWorker(MultiStepRolloutWorker):
         self._weight_sync_coalesced_total = 0
         self._weight_sync_request_total = 0
 
+    @Worker.timer("rollout/generate")
     async def generate(
         self,
         input_channel: Channel,
@@ -71,7 +70,6 @@ class AsyncMultiStepRolloutWorker(MultiStepRolloutWorker):
         while True:
             if self._background_weight_sync_active:
                 await self._poll_background_weight_sync()
-            await self.wait_if_stale()
             for _ in range(self.rollout_epoch):
                 await self.generate_one_epoch(input_channel, output_channel)
             if self.finished_episodes is not None:
@@ -108,40 +106,9 @@ class AsyncMultiStepRolloutWorker(MultiStepRolloutWorker):
         if self._generate_task is not None and not self._generate_task.done():
             self._generate_task.cancel()
 
-    async def recv_actor_buckets(self) -> dict[str, torch.Tensor]:
-        """Receive actor weights in buckets and merge into one state dict.
-
-        Same wire protocol as ``sync_model_from_actor`` in the parent class: the first
-        recv is ``bucket_length``, then ``bucket_length`` shard dicts. The merged dict
-        is returned so the caller can ``load_state_dict`` once (e.g. background sync).
-
-        If ``sync_weight_load_instant`` is False, tensors are moved to CPU while
-        merging to cap GPU memory; if True, tensors stay on their current device.
-        """
-
-        # Receive first bucket to get bucket_length
-        bucket_length = await self.recv(
-            self.actor_group_name,
-            src_rank=self.actor_weight_src_rank,
-            async_op=True,
-            options=self._sync_weight_comm_options,
-        ).async_wait()
-
-        merged: dict[str, torch.Tensor] = {}
-        for _ in range(bucket_length):
-            bucket: dict[str, torch.Tensor] = await self.recv(
-                self.actor_group_name,
-                src_rank=self.actor_weight_src_rank,
-                async_op=True,
-                options=self._sync_weight_comm_options,
-            ).async_wait()
-            for k, v in bucket.items():
-                if not self.sync_weight_load_instant:
-                    v = v.to("cpu")
-                merged[k] = v
-            del bucket
-
-        return merged
+    async def _recv_and_apply_actor_sync(self) -> int:
+        await super().sync_model_from_actor()
+        return self.version
 
     def _start_background_weight_sync_if_needed(self):
         if (
@@ -152,15 +119,9 @@ class AsyncMultiStepRolloutWorker(MultiStepRolloutWorker):
             return
 
         self._weight_sync_requested = False
-        self._weight_sync_work = asyncio.create_task(self.recv_actor_buckets())
+        self._weight_sync_work = asyncio.create_task(self._recv_and_apply_actor_sync())
 
-    def _apply_synced_model_weights(self, param_state_dict):
-        self.hf_model.load_state_dict(param_state_dict)
-
-        del param_state_dict
-        gc.collect()
-        torch.cuda.empty_cache()
-
+    @Worker.timer("rollout/poll_weight_sync")
     async def _poll_background_weight_sync(self):
         self._start_background_weight_sync_if_needed()
         if self._weight_sync_work is None:
@@ -169,13 +130,13 @@ class AsyncMultiStepRolloutWorker(MultiStepRolloutWorker):
         if not self._weight_sync_work.done():
             return
 
-        param_state_dict = await self._weight_sync_work
+        await self._weight_sync_work
         self._weight_sync_work = None
-        self._apply_synced_model_weights(param_state_dict)
         self._weight_sync_apply_total += 1
 
         self._start_background_weight_sync_if_needed()
 
+    @Worker.timer("rollout/request_weight_sync")
     async def request_actor_sync_model(self):
         self._weight_sync_request_total += 1
         if self._weight_sync_requested or self._weight_sync_work is not None:

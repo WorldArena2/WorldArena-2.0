@@ -14,18 +14,18 @@
 
 import asyncio
 import os
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import numpy as np
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 from torch.utils.data import DataLoader, DistributedSampler
 
-from rlinf.config import torch_dtype_from_precision
-from rlinf.data.datasets.reward_model import RewardBinaryDataset, TextCondRewardBinaryDataset, text_cond_reward_collate_fn
+from rlinf.data.datasets.reward_model import RewardBinaryDataset
 from rlinf.data.io_struct import RolloutResult
 from rlinf.data.tokenizers import hf_tokenizer
 from rlinf.hybrid_engines.fsdp.fsdp_model_manager import FSDPModelManager
+from rlinf.models.embodiment.reward import get_reward_model_class
 from rlinf.scheduler import (
     Channel,
     Cluster,
@@ -37,6 +37,7 @@ from rlinf.utils.comm_mapping import CommMapper
 from rlinf.utils.distributed import all_reduce_dict
 from rlinf.utils.down_sampling import down_sample_batch
 from rlinf.utils.metric_utils import append_to_dict
+from rlinf.utils.nested_dict_process import cat_list_of_dict_tensor
 from rlinf.utils.placement import (
     HybridComponentPlacement,
 )
@@ -49,7 +50,6 @@ class RewardWorker(Worker):
     def __init__(self, cfg: DictConfig):
         Worker.__init__(self)
         self.cfg = cfg
-
         self.placement = HybridComponentPlacement(cfg, Cluster())
 
     def init_worker(self):
@@ -221,59 +221,59 @@ class EmbodiedRewardWorker(Worker):
         self.enable_offload = self.cfg.reward.get("enable_offload", False)
         self._interact_task = None
 
-        self.reward_threshold = self.cfg.reward.get("reward_threshold", 0.6)
-
     def model_provider_func(self):
-        from rlinf.models.embodiment.reward import get_reward_model_class
-
         reward_cls = get_reward_model_class(self.cfg.reward.model.model_type)
 
         model_cfg = self.cfg.reward.model
-        torch_dtype = torch_dtype_from_precision(model_cfg.precision)
-
+        with open_dict(model_cfg):
+            model_cfg.num_envs = self.local_num_train_envs
         model = reward_cls(model_cfg)
-
-        model.to(torch_dtype)
 
         return model
 
     def init_worker(self):
         """Initialize the reward worker for inference."""
-        # build model
+        if self._standalone_realworld:
+            self.local_num_train_envs = self.total_num_train_envs
+            self.dst_ranks = {"train": [(0, self.local_num_train_envs)]}
+            self.src_ranks = {"train": [(0, self.local_num_train_envs)]}
+        else:
+            self.dst_ranks = {
+                "train": self._setup_dst_ranks(
+                    self.total_num_train_envs // self.num_pipeline_stages
+                ),
+            }
+            self.src_ranks = {
+                "train": self._setup_src_ranks(
+                    self.total_num_train_envs // self.num_pipeline_stages
+                ),
+            }
+            self.local_num_train_envs = sum(size for _, size in self.src_ranks["train"])
+
         self.model = self.model_provider_func()
 
         # Move to device and set eval mode
         self.model = self.model.to(self.device)
         self.model.eval()
 
-        if self._standalone_realworld:
-            return
-
-        self.dst_ranks = {
-            "train": self._setup_dst_ranks(
-                self.total_num_train_envs // self.num_pipeline_stages
-            ),
-        }
-        self.src_ranks = {
-            "train": self._setup_src_ranks(
-                self.total_num_train_envs // self.num_pipeline_stages
-            ),
-        }
-
+    @Worker.timer("compute_rewards")
     async def compute_rewards(self, input_channel: Channel, output_channel: Channel):
         if self.enable_offload:
             self.model.to(self.device)
 
-        local_num_train_envs = sum(size for _, size in self.src_ranks["train"])
         total_last_run_count = 0
         while True:
-            merged_images, last_run_count = await self.recv_merged_reward_input(
+            reward_input, last_run_count = await self.recv_merged_reward_input(
                 input_channel, mode="train"
             )
-            rewards = self._compute_image_rewards(images=merged_images)
+            rewards = self.model.compute_reward(reward_input)
+
+            if rewards is not None and rewards.dim() == 1:
+                rewards = rewards.unsqueeze(-1)
+
             self.send_reward_output(output_channel, rewards)
             total_last_run_count += last_run_count
-            if total_last_run_count >= local_num_train_envs:
+            if total_last_run_count >= self.local_num_train_envs:
                 break
 
         if self.enable_offload:
@@ -281,12 +281,18 @@ class EmbodiedRewardWorker(Worker):
 
     async def recv_merged_reward_input(
         self, input_channel: Channel, mode: Literal["train", "eval"] = "train"
-    ) -> tuple[torch.Tensor | np.ndarray, int]:
-        """Receive all mapped reward inputs, merge images on batch dim."""
+    ) -> tuple[dict[str, Any], int]:
+        """Receive all mapped reward inputs and merge on batch dimension.
+
+        The env worker sends reward inputs using stable per-rank keys:
+        `CommMapper.build_channel_key(src_rank, reward_rank, extra=f"{mode}_reward_input")`.
+        This function reassembles shards into one batch-aligned dict.
+        """
         assert mode in ["train", "eval"], f"{mode=} is not supported"
         src_ranks_and_sizes = self.src_ranks[mode]
-        image_batches: list[torch.Tensor | np.ndarray] = []
+        batches: list[dict[str, Any]] = []
         last_run_count = 0
+
         for src_rank, expected_size in src_ranks_and_sizes:
             data = await input_channel.get(
                 key=CommMapper.build_channel_key(
@@ -294,65 +300,52 @@ class EmbodiedRewardWorker(Worker):
                 ),
                 async_op=True,
             ).async_wait()
-            images = data.get("images")
-            actual_size = self._infer_reward_batch_size(images)
+            actual_size = self._infer_reward_batch_size(data)
             assert actual_size == expected_size, (
                 f"Expected reward input batch size {expected_size} from env rank {src_rank}, "
-                f"got {actual_size}."
+                f"got batch size {actual_size}."
             )
-            image_batches.append(images)
             last_run = data.get("last_run", None)
             last_run_count += int(last_run.sum().item()) if last_run is not None else 0
+            batches.append(data)
 
-        merged_images = self._merge_image_batches(image_batches)
-        return merged_images, last_run_count
-
-    @staticmethod
-    def _merge_image_batches(
-        image_batches: list[torch.Tensor | np.ndarray],
-    ) -> torch.Tensor | np.ndarray:
-        if len(image_batches) == 0:
-            raise ValueError("No image batches received for reward inference.")
-        if all(isinstance(images, torch.Tensor) for images in image_batches):
-            return torch.cat(image_batches, dim=0)
-        if all(isinstance(images, np.ndarray) for images in image_batches):
-            return np.concatenate(image_batches, axis=0)
-        # Fallback for mixed types: cast ndarray to tensor and merge as torch.Tensor.
-        tensor_batches = [
-            images if isinstance(images, torch.Tensor) else torch.from_numpy(images)
-            for images in image_batches
-        ]
-        return torch.cat(tensor_batches, dim=0)
+        batch_keys = [set(batch) - {"last_run"} for batch in batches]
+        assert len(set(map(frozenset, batch_keys))) == 1, (
+            f"Inconsistent reward input keys across shards: {batch_keys}"
+        )
+        merged = cat_list_of_dict_tensor(
+            [{k: v for k, v in b.items() if k != "last_run"} for b in batches], dim=0
+        )
+        return merged, last_run_count
 
     @staticmethod
-    def _infer_reward_batch_size(images: torch.Tensor | np.ndarray) -> int:
-        if isinstance(images, torch.Tensor) or isinstance(images, np.ndarray):
-            return images.shape[0]
-        raise ValueError(f"Unsupported reward input image type: {type(images)}")
+    def _infer_reward_batch_size(reward_input: dict[str, Any]) -> int:
+        main_images = reward_input.get("main_images", None)
+        if main_images is None:
+            raise ValueError(
+                "Reward input dict missing 'main_images' for batch size inference."
+            )
+        if not isinstance(main_images, (np.ndarray, torch.Tensor)):
+            raise TypeError(f"Unsupported main_images type: {type(main_images)}")
 
-    @Worker.timer("compute_image_rewards")
-    def _compute_image_rewards(self, images: torch.Tensor):
-        if isinstance(images, np.ndarray):
-            images = torch.from_numpy(images)
+        batch_size = int(main_images.shape[0])
 
-        model_dtype = next(self.model.parameters()).dtype
-        images = images.to(device=self.device, dtype=model_dtype)
-
-        with torch.no_grad():
-            outputs = self.model(images)
-            probs = outputs["probabilities"]
-            rewards = (probs > self.reward_threshold).to(probs.dtype)
-
-        if rewards.dim() == 1:
-            rewards = rewards.unsqueeze(-1)
-
-        return rewards
+        for key, value in reward_input.items():
+            if key == "last_run" or value is None:
+                continue
+            elif isinstance(value, (torch.Tensor, np.ndarray, list)):
+                assert len(value) == batch_size, (
+                    f"{key} batch size {len(value)} != main_images batch size {batch_size}"
+                )
+        return batch_size
 
     def compute_image_rewards(
         self, images: torch.Tensor | np.ndarray
     ) -> torch.Tensor | np.ndarray:
         """Run one-shot reward inference and return CPU results."""
-        rewards = self._compute_image_rewards(images)
+        rewards = self.model.compute_reward({"main_images": images})
+        if rewards is not None and rewards.dim() == 1:
+            rewards = rewards.unsqueeze(-1)
         if isinstance(rewards, torch.Tensor):
             return rewards.detach().cpu()
         return rewards
@@ -402,10 +395,13 @@ class EmbodiedRewardWorker(Worker):
             output_channel: Channel carrying rollout->env action chunks.
             reward_tensor: Predicted rewards (tensor or ndarray).
         """
-
         dst_ranks_and_sizes = self.dst_ranks["train"]
         split_sizes = [size for _, size in dst_ranks_and_sizes]
-        reward_tensor_split = list(torch.split(reward_tensor, split_sizes, dim=0))
+        reward_tensor_split = (
+            list(torch.split(reward_tensor, split_sizes, dim=0))
+            if reward_tensor is not None
+            else [None] * len(dst_ranks_and_sizes)
+        )
         for (dst_rank, _), reward_i in zip(dst_ranks_and_sizes, reward_tensor_split):
             if isinstance(reward_i, torch.Tensor):
                 reward_i = reward_i.cpu().contiguous()
@@ -433,10 +429,14 @@ class EmbodiedRewardWorker(Worker):
 
     async def _compute_rewards(self, input_channel: Channel, output_channel: Channel):
         while True:
-            merged_images, _ = await self.recv_merged_reward_input(
+            observations, _ = await self.recv_merged_reward_input(
                 input_channel, mode="train"
             )
-            rewards = self._compute_image_rewards(images=merged_images)
+            rewards = self.model.compute_reward(observations)
+
+            if rewards is not None and rewards.dim() == 1:
+                rewards = rewards.unsqueeze(-1)
+
             self.send_reward_output(output_channel, rewards)
 
     async def stop(self):
@@ -453,27 +453,35 @@ class FSDPRewardWorker(FSDPModelManager, Worker):
 
         self.cfg = cfg
 
+        self.data_loader, self.val_loader = self.build_dataloader()
+
         # Training step counter for validation interval
         self._training_step = 0
 
-    def model_provider_func(self):
-        from rlinf.models.embodiment.reward import get_reward_model_class
+        assert (
+            self.cfg.actor.global_batch_size
+            % (self.cfg.actor.micro_batch_size * self._world_size)
+            == 0
+        ), "global_batch_size is not divisible by micro_batch_size * world_size"
 
+        self.gradient_accumulation = (
+            self.cfg.actor.global_batch_size
+            // self.cfg.actor.micro_batch_size
+            // self._world_size
+        )
+
+    def model_provider_func(self):
         reward_cls = get_reward_model_class(self.cfg.actor.model.model_type)
 
         model_cfg = self.cfg.actor.model
-        torch_dtype = torch_dtype_from_precision(model_cfg.precision)
 
         model = reward_cls(model_cfg)
-
-        model.to(torch_dtype)
 
         return model
 
     def init_worker(self):
         """Initialize model and optimizer using base class."""
 
-        self.data_loader, self.val_loader = self.build_dataloader()
         if self.data_loader is None:
             raise ValueError("data_loader is not set")
         self.data_iter = iter(self.data_loader)
@@ -547,18 +555,6 @@ class FSDPRewardWorker(FSDPModelManager, Worker):
     def run_training(self) -> dict[str, float]:
         """Run one training iteration with gradient accumulation."""
         self.model.train()
-
-        assert (
-            self.cfg.actor.global_batch_size
-            % (self.cfg.actor.micro_batch_size * self._world_size)
-            == 0
-        ), "global_batch_size is not divisible by micro_batch_size * world_size"
-
-        self.gradient_accumulation = (
-            self.cfg.actor.global_batch_size
-            // self.cfg.actor.micro_batch_size
-            // self._world_size
-        )
 
         metrics = {}
 
@@ -658,199 +654,7 @@ class FSDPRewardWorker(FSDPModelManager, Worker):
 
         return val_metrics
 
-
-class FSDPTextCondRewardWorker(FSDPRewardWorker):
-    """FSDP-based worker for text-conditioned reward model training.
-
-    Extends :class:`FSDPRewardWorker` to handle batches that carry an
-    additional ``instructions`` field alongside ``(images, labels)``.
-
-    The underlying model is expected to accept
-    ``model(images, labels=labels, instructions=instructions)`` – i.e.
-    :class:`~rlinf.models.embodiment.reward.robotwin_reward_model
-    .RoboTwinT5CrossAttnRewardModel`.
-    """
-
-    def model_provider_func(self):
-        from rlinf.models.embodiment.reward import get_reward_model_class
-
-        reward_cls = get_reward_model_class(self.cfg.actor.model.model_type)
-        model_cfg = self.cfg.actor.model
-        from rlinf.config import torch_dtype_from_precision
-
-        torch_dtype = torch_dtype_from_precision(model_cfg.precision)
-        model = reward_cls(model_cfg)
-        model.to(torch_dtype)
-        return model
-
-    def build_dataloader(
-        self,
-    ) -> tuple[Optional[DataLoader], Optional[DataLoader]]:
-        """Build text-conditioned dataloaders from preprocessed split files."""
-        data_cfg = self.cfg.get("data", {})
-        train_data_paths = data_cfg.get("train_data_paths")
-        val_data_paths = data_cfg.get("val_data_paths")
-
-        self.logger.info(
-            f"Loading text-cond reward datasets from "
-            f"{train_data_paths} and {val_data_paths}"
-        )
-
-        train_dataset = TextCondRewardBinaryDataset(train_data_paths)
-        val_dataset = TextCondRewardBinaryDataset(val_data_paths)
-
-        if len(train_dataset) == 0:
-            self.logger.warning("Training dataset is empty")
-            return None, None
-
-        train_sampler = DistributedSampler(
-            train_dataset,
-            num_replicas=self._world_size,
-            rank=self._rank,
-            shuffle=True,
-        )
-        val_sampler = DistributedSampler(
-            val_dataset,
-            num_replicas=self._world_size,
-            rank=self._rank,
-            shuffle=False,
-        )
-
-        batch_size = self.cfg.actor.micro_batch_size
-        num_workers = data_cfg.get("num_workers", 4)
-
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=batch_size,
-            sampler=train_sampler,
-            num_workers=num_workers,
-            collate_fn=text_cond_reward_collate_fn,
-            pin_memory=True,
-            drop_last=True,
-        )
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=batch_size,
-            sampler=val_sampler,
-            num_workers=num_workers,
-            collate_fn=text_cond_reward_collate_fn,
-            pin_memory=True,
-            drop_last=False,
-        )
-
-        self.logger.info(
-            f"Created text-cond dataloaders: {len(train_dataset)} train, "
-            f"{len(val_dataset)} val"
-        )
-        return train_loader, val_loader
-
-    @Worker.timer("run_training")
-    def run_training(self) -> dict[str, float]:
-        """Run one text-conditioned training iteration."""
-        self.model.train()
-
-        assert (
-            self.cfg.actor.global_batch_size
-            % (self.cfg.actor.micro_batch_size * self._world_size)
-            == 0
-        ), "global_batch_size is not divisible by micro_batch_size * world_size"
-
-        self.gradient_accumulation = (
-            self.cfg.actor.global_batch_size
-            // self.cfg.actor.micro_batch_size
-            // self._world_size
-        )
-
-        metrics: dict[str, list] = {}
-
-        for idx in range(self.gradient_accumulation):
-            backward_ctx = self.before_micro_batch(
-                self.model,
-                is_last_micro_batch=(idx + 1) == self.gradient_accumulation,
-            )
-
-            try:
-                images, instructions, labels = next(self.data_iter)
-            except StopIteration:
-                self.data_iter = iter(self.data_loader)
-                images, instructions, labels = next(self.data_iter)
-
-            images = images.to(self.device)
-            labels = labels.to(self.device)
-            # ``instructions`` is a plain Python list of strings – no `.to()` needed.
-
-            with self.amp_context:
-                outputs = self.model(images, labels=labels, instructions=instructions)
-                loss = outputs["loss"]
-
-            loss = loss / self.gradient_accumulation
-            with backward_ctx:
-                self.grad_scaler.scale(loss).backward()
-
-            append_to_dict(
-                metrics,
-                {
-                    "loss": outputs["loss"].item(),
-                    "accuracy": outputs["accuracy"].item(),
-                    "probabilities_mean": outputs["probabilities"].mean().item(),
-                },
-            )
-
-        grad_norm, lr_list = self.optimizer_step()
-        self.optimizer.zero_grad(set_to_none=True)
-
-        lr_value = (
-            lr_list[0] if len(lr_list) > 0 else self.optimizer.param_groups[0]["lr"]
-        )
-        grad_norm_value = (
-            float(grad_norm) if isinstance(grad_norm, torch.Tensor) else grad_norm
-        )
-        append_to_dict(
-            metrics,
-            {
-                "learning_rate": lr_value,
-                "grad_norm": grad_norm_value,
-            },
-        )
-
-        self.lr_scheduler.step()
-        clear_memory()
-
-        train_metrics = {key: np.mean(value) for key, value in metrics.items()}
-        train_metrics = all_reduce_dict(
-            train_metrics, op=torch.distributed.ReduceOp.AVG
-        )
-        return train_metrics
-
-    @Worker.timer("run_eval")
-    def run_eval(self) -> dict[str, float]:
-        """Run validation over the full text-conditioned validation set."""
-        if self.val_loader is None:
-            return {}
-
-        self.model.eval()
-        metrics: dict[str, list] = {}
-
-        with torch.no_grad():
-            for images, instructions, labels in self.val_loader:
-                images = images.to(self.device)
-                labels = labels.to(self.device)
-                with self.amp_context:
-                    outputs = self.model(
-                        images, labels=labels, instructions=instructions
-                    )
-
-                append_to_dict(
-                    metrics,
-                    {
-                        "val_loss": outputs["loss"].item(),
-                        "val_accuracy": outputs["accuracy"].item(),
-                        "val_probabilities_mean": outputs["probabilities"]
-                        .mean()
-                        .item(),
-                    },
-                )
-
-        val_metrics = {key: np.mean(value) for key, value in metrics.items()}
-        val_metrics = all_reduce_dict(val_metrics, op=torch.distributed.ReduceOp.AVG)
-        return val_metrics
+    def get_max_steps_per_epoch(self):
+        if self.data_loader is not None:
+            return max(1, len(self.data_loader) // self.gradient_accumulation)
+        return 0

@@ -59,7 +59,7 @@ class RecordVideo(gym.Wrapper):
             ``info_on_video`` (whether to render overlay text),
             ``extra_info_on_video`` (list of ``info`` keys to render).
         fps: Explicit FPS override. If ``None``, FPS is resolved from
-            ``video_cfg.fps``, environment config/metadata, then fallback ``2``.
+            ``video_cfg.fps``, environment config/metadata, then fallback ``30``.
     """
 
     def __init__(self, env: gym.Env, video_cfg, fps: Optional[int] = None):
@@ -74,15 +74,10 @@ class RecordVideo(gym.Wrapper):
 
         self.video_cfg = video_cfg
         self.render_images: list[np.ndarray] = []
-        self.raw_frames: list[list[np.ndarray]] = []  # 原始帧（无文字、无拼接）
         self.video_cnt = 0
         self._num_envs = getattr(env, "num_envs", 1)
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._save_futures: list[Future] = []
-        
-        # 图片保存配置
-        self.save_images = getattr(self.video_cfg, "save_images", False)
-        self.image_format = getattr(self.video_cfg, "image_format", "png")
 
         if fps is not None:
             self._fps = fps
@@ -108,7 +103,7 @@ class RecordVideo(gym.Wrapper):
         metadata = getattr(env, "metadata", None)
         if isinstance(metadata, dict) and "render_fps" in metadata:
             return int(metadata["render_fps"])
-        return 2
+        return 30
 
     def _to_numpy(self, value: Any) -> np.ndarray:
         """Convert tensors/arrays to numpy."""
@@ -127,21 +122,16 @@ class RecordVideo(gym.Wrapper):
                 return obs[key]
         return None
 
-    def _extract_frame_batches(
-        self, obs: Any, chunk_keep_mode: Optional[str] = None
-    ) -> list[list[np.ndarray]]:
+    def _extract_frame_batches(self, obs: Any) -> list[list[np.ndarray]]:
         """Extract a list of per-step image batches from obs."""
         if obs is None:
             return []
-
-        keep_mode = (chunk_keep_mode or "all").lower()
 
         if isinstance(obs, dict):
             image_src = self._get_image_from_dict(obs)
             if image_src is None:
                 return []
-            frames = self._split_image_source(image_src)
-            return frames[-1:] if keep_mode == "last" and frames else frames
+            return self._split_image_source(image_src)
 
         if isinstance(obs, (list, tuple)):
             if len(obs) == 0:
@@ -154,8 +144,8 @@ class RecordVideo(gym.Wrapper):
                         continue
                     batches = self._split_image_source(image_src)
                     if batches:
-                        frames.append(batches[-1] if keep_mode == "last" else batches[0])
-                return frames[-1:] if keep_mode == "last" and frames else frames
+                        frames.append(batches[0])
+                return frames
             images = []
             for item in obs:
                 img = self._to_numpy(item)
@@ -165,11 +155,9 @@ class RecordVideo(gym.Wrapper):
             return [images] if images else []
 
         if torch is not None and isinstance(obs, torch.Tensor):
-            frames = self._split_image_source(obs)
-            return frames[-1:] if keep_mode == "last" and frames else frames
+            return self._split_image_source(obs)
         if isinstance(obs, np.ndarray):
-            frames = self._split_image_source(obs)
-            return frames[-1:] if keep_mode == "last" and frames else frames
+            return self._split_image_source(obs)
         return []
 
     def _split_image_source(self, image_src: Any) -> list[list[np.ndarray]]:
@@ -323,16 +311,9 @@ class RecordVideo(gym.Wrapper):
         terminations: Optional[Any],
         time_idx: Optional[int] = None,
     ) -> None:
-        """Overlay info (optional) and append a tiled frame.
-        
-        Also stores raw individual frames separately for image saving.
-        """
+        """Overlay info (optional) and append a tiled frame."""
         if not images:
             return
-        
-        # 保存原始帧（无文字、无拼接）- 每个 env 一张图
-        self.raw_frames.append(list(images))
-        
         if self.video_cfg.get("info_on_video", True):
             images = [
                 put_info_on_image(
@@ -356,10 +337,9 @@ class RecordVideo(gym.Wrapper):
         infos: Optional[Any] = None,
         rewards: Optional[Any] = None,
         terminations: Optional[Any] = None,
-        chunk_keep_mode: Optional[str] = None,
     ):
         """Extract frames from obs and append to the buffer."""
-        frames = self._extract_frame_batches(obs, chunk_keep_mode=chunk_keep_mode)
+        frames = self._extract_frame_batches(obs)
         if not frames:
             warnings.warn(
                 f"Failed to extract images from obs, obs type: {type(obs)}, obs keys: "
@@ -393,14 +373,36 @@ class RecordVideo(gym.Wrapper):
         self.add_new_frames(obs, info, reward, terminations)
         return obs, reward, terminated, truncated, info
 
-    def chunk_step(self, *args, **kwargs):
-        """Step a chunk and record chunk frames according to video config."""
-        result = self.env.chunk_step(*args, **kwargs)
+    def record_video_in_result(self, result) -> None:
+        """Record video frames from a chunk_step / async_chunk_step result tuple."""
         if isinstance(result, tuple) and len(result) >= 5:
             obs_list, rewards, terminations, _truncations, infos_list = result[:5]
+
+            # Some envs may skip intermediate observations for performance and return
+            # None entries. Filter them out for video collection.
+            if isinstance(obs_list, (list, tuple)):
+                valid_indices = [i for i, obs in enumerate(obs_list) if obs is not None]
+                if len(valid_indices) == 0:
+                    return
+                if len(valid_indices) != len(obs_list):
+                    obs_list = [obs_list[i] for i in valid_indices]
+                    if isinstance(infos_list, (list, tuple)):
+                        infos_list = [infos_list[i] for i in valid_indices]
+                    if (
+                        torch is not None
+                        and isinstance(rewards, torch.Tensor)
+                        and rewards.ndim == 2
+                    ):
+                        rewards = rewards[:, valid_indices]
+                    if (
+                        torch is not None
+                        and isinstance(terminations, torch.Tensor)
+                        and terminations.ndim == 2
+                    ):
+                        terminations = terminations[:, valid_indices]
+
             final_obs = None
             last_info = None
-            chunk_keep_mode = getattr(self.video_cfg, "chunk_keep_mode", "all")
             if isinstance(infos_list, (list, tuple)) and len(infos_list) > 0:
                 last_info = infos_list[-1]
                 if isinstance(last_info, dict):
@@ -422,26 +424,19 @@ class RecordVideo(gym.Wrapper):
                     if isinstance(infos_list, (list, tuple))
                     else infos_list
                 )
-                self.add_new_frames(
-                    obs_main,
-                    infos_main,
-                    rewards,
-                    terminations,
-                    chunk_keep_mode=chunk_keep_mode,
-                )
+                self.add_new_frames(obs_main, infos_main, rewards, terminations)
                 self.add_new_frames(reset_obs, None)
             else:
-                self.add_new_frames(
-                    obs_list,
-                    infos_list,
-                    rewards,
-                    terminations,
-                    chunk_keep_mode=chunk_keep_mode,
-                )
+                self.add_new_frames(obs_list, infos_list, rewards, terminations)
+
+    def chunk_step(self, *args, **kwargs):
+        """Step a chunk and record all frames from the chunk."""
+        result = self.env.chunk_step(*args, **kwargs)
+        self.record_video_in_result(result)
         return result
 
     def flush_video(self, video_sub_dir: Optional[str] = None):
-        """Write buffered frames to an MP4 file (async) and optionally save individual images."""
+        """Write buffered frames to an MP4 file (async)."""
         if not self.render_images:
             return
 
@@ -452,60 +447,17 @@ class RecordVideo(gym.Wrapper):
             output_dir = os.path.join(output_dir, f"{video_sub_dir}")
 
         os.makedirs(output_dir, exist_ok=True)
-        
-        # Save video (原有功能，保存带文字的拼接图)
         mp4_path = os.path.join(output_dir, f"{self.video_cnt}.mp4")
         frames = list(self.render_images)
-        self._submit_save(frames, mp4_path)
-        
-        # Save individual images (新增功能，保存无文字的原始帧)
-        if self.save_images and self.raw_frames:
-            image_dir = os.path.join(output_dir, f"frames_{self.video_cnt}")
-            os.makedirs(image_dir, exist_ok=True)
-            # raw_frames: list of [env0_img, env1_img, ...] for each timestep
-            # flatten to save each env's frame at each timestep
-            self._submit_save_raw_frames(self.raw_frames, image_dir)
-        
         self.render_images = []
-        self.raw_frames = []
         self.video_cnt += 1
+        self._submit_save(frames, mp4_path)
 
     def _submit_save(self, frames: list[np.ndarray], mp4_path: str) -> None:
         """Submit a background job to save the video."""
         self._prune_futures()
         future = self._executor.submit(self._save_video, frames, mp4_path)
         self._save_futures.append(future)
-    
-    def _submit_save_raw_frames(self, raw_frames: list[list[np.ndarray]], image_dir: str) -> None:
-        """Submit a background job to save raw individual frames."""
-        self._prune_futures()
-        future = self._executor.submit(self._save_raw_frames, raw_frames, image_dir)
-        self._save_futures.append(future)
-    
-    def _save_raw_frames(self, raw_frames: list[list[np.ndarray]], image_dir: str) -> None:
-        """Save raw individual frames without text overlay or tiling.
-        
-        Structure: image_dir/frame_{video_cnt:06d}_{frame_idx:03d}_env{env_id:02d}.{format}
-        Each frame is saved separately with the format: frame_{视频索引}_{帧索引}_env{环境索引}.png
-        """
-        try:
-            import imageio.v3 as iio
-            video_idx = self.video_cnt - 1  # Current video index (already incremented)
-            
-            for frame_idx, frame_images in enumerate(raw_frames):
-                # frame_images: list of images for each env (already separated, no tiling)
-                for env_id, img in enumerate(frame_images):
-                    # Ensure uint8 format
-                    if img.dtype != np.uint8:
-                        img = img.astype(np.uint8)
-                    
-                    img_path = os.path.join(
-                        image_dir, 
-                        f"frame_{video_idx:06d}_{frame_idx:03d}_env{env_id:02d}.{self.image_format}"
-                    )
-                    iio.imwrite(img_path, img)
-        except Exception as exc:
-            warnings.warn(f"Failed to save raw frames to {image_dir}: {exc}")
 
     def _save_video(self, frames: list[np.ndarray], mp4_path: str) -> None:
         """Save frames to disk (runs in background)."""

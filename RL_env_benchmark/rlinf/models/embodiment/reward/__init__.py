@@ -16,15 +16,17 @@
 
 from rlinf.models.embodiment.reward.base_image_reward_model import BaseImageRewardModel
 from rlinf.models.embodiment.reward.base_reward_model import BaseRewardModel
-from rlinf.models.embodiment.reward.resnet_reward_model import ResNetRewardModel
+from rlinf.models.embodiment.reward.lpips_reward_model import LPIPSLastFrameRewardModel
 from rlinf.models.embodiment.reward.qwen_vlm_reward_model import (
     QwenVLMProgressRewardModel,
 )
-from rlinf.models.embodiment.reward.lpips_reward_model import (
-    LPIPSLastFrameRewardModel,
-)
+from rlinf.models.embodiment.reward.resnet_reward_model import ResNetRewardModel
 from rlinf.models.embodiment.reward.robotwin_reward_model import (
     RoboTwinT5CrossAttnRewardModel,
+)
+from rlinf.models.embodiment.reward.vlm_reward_model import (
+    HistoryVLMRewardModel,
+    VLMRewardModel,
 )
 
 __all__ = [
@@ -34,6 +36,8 @@ __all__ = [
     "QwenVLMProgressRewardModel",
     "LPIPSLastFrameRewardModel",
     "RoboTwinT5CrossAttnRewardModel",
+    "VLMRewardModel",
+    "HistoryVLMRewardModel",
 ]
 
 reward_model_registry = {
@@ -41,6 +45,8 @@ reward_model_registry = {
     "qwen_vlm_progress": QwenVLMProgressRewardModel,
     "lpips_last_frame": LPIPSLastFrameRewardModel,
     "robotwin_t5_crossattn": RoboTwinT5CrossAttnRewardModel,
+    "vlm": VLMRewardModel,
+    "history_vlm": HistoryVLMRewardModel,
 }
 
 

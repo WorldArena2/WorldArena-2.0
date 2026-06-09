@@ -21,12 +21,10 @@ from omegaconf import DictConfig
 
 def get_model(cfg: DictConfig, torch_dtype=None):
     import glob
-    import tempfile
 
     import openpi.shared.download as download
     import openpi.transforms as transforms
     import safetensors
-    import torch.distributed.checkpoint as dcp
     from openpi.training import checkpoints as _checkpoints
 
     from rlinf.models.embodiment.openpi.dataconfig import get_openpi_config
@@ -78,43 +76,15 @@ def get_model(cfg: DictConfig, torch_dtype=None):
         model_state_dict = torch.load(actor_full_weights_path, map_location="cpu")
         model.load_state_dict(model_state_dict, strict=False)
     else:
-        # Check if this is a DCP checkpoint (.distcp files)
-        distcp_files = glob.glob(os.path.join(checkpoint_dir, "*.distcp"))
-        if distcp_files:
-            # Try to load using DCP format, but it requires .metadata file
-            # If .metadata doesn't exist, we need to find an alternative
-            metadata_path = os.path.join(checkpoint_dir, ".metadata")
-            
-            if os.path.exists(metadata_path):
-                # Has metadata, can use dcp_to_torch_save
-                from torch.distributed.checkpoint.format_utils import dcp_to_torch_save
-                
-                tmp_pt_path = os.path.join(checkpoint_dir, ".tmp_converted_checkpoint.pt")
-                try:
-                    dcp_to_torch_save(checkpoint_dir, tmp_pt_path)
-                    model_state_dict = torch.load(tmp_pt_path, map_location="cpu")
-                    model.load_state_dict(model_state_dict, strict=False)
-                finally:
-                    if os.path.exists(tmp_pt_path):
-                        os.remove(tmp_pt_path)
-            else:
-                # No metadata file, try to find full_weights.pt in parent directories
-                # or suggest using an older checkpoint
-                raise FileNotFoundError(
-                    f"DCP checkpoint at {checkpoint_dir} is missing .metadata file and cannot be loaded. "
-                    f"This checkpoint may be incomplete. Please use a checkpoint with full_weights.pt "
-                    f"or re-save the checkpoint with save_full_model_weights=True."
-                )
-        else:
-            # Original model directory with safetensors files
-            weight_paths = sorted(glob.glob(os.path.join(checkpoint_dir, "*.safetensors")))
-            if not weight_paths:
-                weight_paths = [os.path.join(checkpoint_dir, "model.safetensors")]
-            all_state_dict = {}
-            for weight_path in weight_paths:
-                state_dict = safetensors.torch.load_file(weight_path, device="cpu")
-                all_state_dict.update(state_dict)
-            model.load_state_dict(all_state_dict, strict=False)
+        # Original model directory with safetensors files
+        weight_paths = sorted(glob.glob(os.path.join(checkpoint_dir, "*.safetensors")))
+        if not weight_paths:
+            weight_paths = [os.path.join(checkpoint_dir, "model.safetensors")]
+        all_state_dict = {}
+        for weight_path in weight_paths:
+            state_dict = safetensors.torch.load_file(weight_path, device="cpu")
+            all_state_dict.update(state_dict)
+        model.load_state_dict(all_state_dict, strict=False)
 
     model.paligemma_with_expert.to_bfloat16_for_selected_params("bfloat16")
     # fsdp replace

@@ -14,12 +14,15 @@
 
 import logging
 import os
+import re
 import signal
 import sys
+import tempfile
 import time
 from enum import Enum
 from importlib.metadata import version
-from typing import TYPE_CHECKING, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
 
 import ray
 import ray.util.scheduling_strategies
@@ -29,8 +32,9 @@ from ray._private import ray_logging
 from ray.actor import ActorHandle
 from ray.util.state import list_actors
 
+from ..hardware.accelerators.accelerator import ProfileConfig
 from .config import ClusterConfig
-from .node import NodeGroupInfo, NodeProbe
+from .node import NodeGroupInfo, NodeInfo, NodeProbe
 from .utils import DistributedRayLogCollector, without_http_proxies
 
 ray_version = version("ray")
@@ -39,6 +43,7 @@ assert vs.parse(ray_version) >= vs.parse("2.47.0"), (
 )
 
 if TYPE_CHECKING:
+    from ..manager import Manager
     from ..worker import Worker
 
 
@@ -81,6 +86,19 @@ class ClusterEnvVar(str, Enum):
         - override: replace existing value with the new value
     """
 
+    CODE_WORKING_DIR = "CODE_WORKING_DIR"
+    """Enable shipping the ``rlinf`` Python package to workers via Ray ``runtime_env`` (``py_modules``).
+
+    Only the ``rlinf/`` subdirectory of the checkout is packaged (not ``examples/``, ``docs/``, etc.).
+
+    Values (``RLINF_CODE_WORKING_DIR``):
+        - Unset / ``0`` / ``false`` / ``off`` / ``no``: disabled (same as legacy behavior: no Ray code sync).
+        - ``auto``: infer checkout root from the installed ``rlinf`` package / ``pyproject.toml``.
+        - Absolute path: repository root containing ``pyproject.toml`` and ``rlinf/``, or the ``rlinf`` package dir.
+
+    Set explicitly when workers do not share a filesystem with the launch node.
+    """
+
 
 class PathEnvMergeMode(str, Enum):
     """Merge mode for path-like worker env vars."""
@@ -106,6 +124,7 @@ class Cluster:
         ClusterEnvVar.COMM_NET_DEVICES: None,
         ClusterEnvVar.EXT_MODULE: None,
         ClusterEnvVar.PATH_ENV_MERGE_MODE: PathEnvMergeMode.APPEND.value,
+        ClusterEnvVar.CODE_WORKING_DIR: "0",
     }
     PATH_LIKE_ENV_VARS = {
         "PYTHONPATH",
@@ -158,12 +177,16 @@ class Cluster:
             return
         self._setup_logger()
         self._distributed_log_collector: Optional[DistributedRayLogCollector] = None
+        self._ray_code_sync_fragment: Optional[dict[str, Any]] = None
+        self._runtime_code_sync_strip_roots: tuple[str, ...] = ()
         if num_nodes is not None or cluster_cfg is not None:
             self._ray_instance_count = 0
             while True:
                 try:
                     self._init_and_launch_managers(
-                        num_nodes, cluster_cfg, distributed_log_dir
+                        num_nodes,
+                        cluster_cfg,
+                        distributed_log_dir,
                     )
                     break
                 except Cluster.NamespaceConflictError:
@@ -201,6 +224,46 @@ class Cluster:
         )
         handler.setFormatter(formatter)
         self._logger.addHandler(handler)
+
+    @staticmethod
+    def _get_manager_node(nodes: list[NodeInfo]) -> NodeInfo:
+        """Return the alive node that hosts all global manager actors."""
+        manager_node = next(
+            (node for node in nodes if node.node_rank == 0),
+            None,
+        )
+        assert manager_node is not None, (
+            "All managers must be launched on node rank 0, "
+            "but node rank 0 is unavailable."
+        )
+        return manager_node
+
+    def _launch_manager_actor(
+        self,
+        manager_cls: type["Manager"],
+        manager_node: NodeInfo,
+        runtime_env: dict[str, Any],
+        *args,
+    ) -> ActorHandle:
+        """Launch a global manager actor pinned to cluster node rank 0."""
+        combined_runtime_env = Cluster._combine_ray_runtime_env(
+            Cluster._job_code_sync_fragment_for_child_runtime_env(
+                self._ray_code_sync_fragment
+            ),
+            runtime_env,
+        )
+        return (
+            ray.remote(manager_cls)
+            .options(
+                name=manager_cls.MANAGER_NAME,
+                runtime_env=combined_runtime_env,
+                scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
+                    node_id=manager_node.ray_id,
+                    soft=False,
+                ),
+            )
+            .remote(*args)
+        )
 
     def _init_and_launch_managers(
         self,
@@ -245,18 +308,36 @@ class Cluster:
         )
         assert self._num_nodes >= 0, "num_nodes must be greater than or equal to 0."
 
+        self._ray_code_sync_fragment, self._runtime_code_sync_strip_roots = (
+            Cluster._prepare_ray_code_sync_runtime_env_fragment()
+        )
+
         try:
             # First try to connect to an existing Ray cluster
-            ray.init(
-                address="auto",
-                logging_level=Cluster.LOGGING_LEVEL,
-                namespace=Cluster.NAMESPACE,
-            )
+            ray_init_kwargs: dict[str, Any] = {
+                "address": "auto",
+                "logging_level": Cluster.LOGGING_LEVEL,
+                "namespace": Cluster.NAMESPACE,
+            }
+            if self._ray_code_sync_fragment is not None:
+                ray_init_kwargs["runtime_env"] = dict(self._ray_code_sync_fragment)
+                py_mods = ray_init_kwargs["runtime_env"].get("py_modules") or ()
+                self._logger.info(
+                    "%s Ray code sync is enabled (py_modules=%r); workers receive "
+                    "only the rlinf package from the launch node. Disable with %s=0.",
+                    Cluster.SYS_NAME,
+                    tuple(py_mods),
+                    Cluster.get_full_env_var_name(ClusterEnvVar.CODE_WORKING_DIR),
+                )
+            ray.init(**ray_init_kwargs)
         except ConnectionError:
-            ray.init(
-                logging_level=Cluster.LOGGING_LEVEL,
-                namespace=Cluster.NAMESPACE,
-            )
+            ray_init_kwargs = {
+                "logging_level": Cluster.LOGGING_LEVEL,
+                "namespace": Cluster.NAMESPACE,
+            }
+            if self._ray_code_sync_fragment is not None:
+                ray_init_kwargs["runtime_env"] = dict(self._ray_code_sync_fragment)
+            ray.init(**ray_init_kwargs)
 
         # Ray log collector
         if distributed_log_dir is not None:
@@ -307,30 +388,26 @@ class Cluster:
 
         try:
             runtime_env = {"env_vars": Manager.get_runtime_env_vars()}
-            self._worker_manager = (
-                ray.remote(WorkerManager)
-                .options(name=WorkerManager.MANAGER_NAME, runtime_env=runtime_env)
-                .remote()
+            manager_node = self._get_manager_node(self._nodes)
+            self._worker_manager = self._launch_manager_actor(
+                WorkerManager, manager_node, runtime_env
             )
-            self._coll_manager = (
-                ray.remote(CollectiveManager)
-                .options(name=CollectiveManager.MANAGER_NAME, runtime_env=runtime_env)
-                .remote()
+            self._coll_manager = self._launch_manager_actor(
+                CollectiveManager, manager_node, runtime_env
             )
-            self._node_manager = (
-                ray.remote(NodeManager)
-                .options(name=NodeManager.MANAGER_NAME, runtime_env=runtime_env)
-                .remote(self._nodes, self._node_groups, self._cluster_cfg)
+            self._node_manager = self._launch_manager_actor(
+                NodeManager,
+                manager_node,
+                runtime_env,
+                self._nodes,
+                self._node_groups,
+                self._cluster_cfg,
             )
-            self._device_lock_manager = (
-                ray.remote(DeviceLockManager)
-                .options(name=DeviceLockManager.MANAGER_NAME, runtime_env=runtime_env)
-                .remote()
+            self._device_lock_manager = self._launch_manager_actor(
+                DeviceLockManager, manager_node, runtime_env
             )
-            self._port_lock_manager = (
-                ray.remote(PortLockManager)
-                .options(name=PortLockManager.MANAGER_NAME, runtime_env=runtime_env)
-                .remote()
+            self._port_lock_manager = self._launch_manager_actor(
+                PortLockManager, manager_node, runtime_env
             )
         except ValueError:
             raise Cluster.NamespaceConflictError
@@ -470,6 +547,114 @@ class Cluster:
         """Get the IP address of a specific node by its rank."""
         return self._nodes[node_rank].node_ip
 
+    @staticmethod
+    def _sanitize_worker_name_for_path(worker_name: str) -> str:
+        """Sanitize worker names for use in output filenames."""
+        return re.sub(r"[^A-Za-z0-9._-]", "_", worker_name)
+
+    @classmethod
+    def _get_default_profiling_output_prefix(
+        cls,
+        worker_name: str,
+        output_dir: str,
+    ) -> str:
+        safe_worker_name = cls._sanitize_worker_name_for_path(worker_name)
+        return os.path.join(output_dir, f"rlinf_profile_{safe_worker_name}_%p")
+
+    @classmethod
+    def modify_profile_context(
+        cls,
+        python_interpreter_path: str,
+        worker_name: str,
+        profiling_cfg: Optional[ProfileConfig],
+    ) -> str:
+        """Wrap ``py_executable`` with a profiler command if profiling is configured.
+
+        Dispatches to the accelerator manager that owns the profiling config type,
+        so all profiler-specific CLI construction stays in the hardware layer.
+        """
+        if profiling_cfg is None:
+            return python_interpreter_path
+
+        from ..hardware.accelerators.accelerator import AcceleratorManager
+        from ..manager import WorkerAddress
+
+        worker_group_name = WorkerAddress.from_name(worker_name).root_group_name
+        if not profiling_cfg.profiles_worker_group(worker_group_name):
+            return python_interpreter_path
+
+        # Resolve the accelerator manager registered for this profiling config class.
+        manager = None
+        for accel_type, cfg_cls in AcceleratorManager.profiling_config_register.items():
+            if isinstance(profiling_cfg, cfg_cls):
+                manager = AcceleratorManager.manager_register.get(accel_type)
+                break
+
+        if manager is None:
+            return python_interpreter_path
+
+        if profiling_cfg.output_dir is None:
+            output_dir = tempfile.gettempdir()
+
+            from rlinf.utils.logging import get_logger
+
+            get_logger().warning(
+                f"Profiling is enabled for worker group '{worker_group_name}' but no "
+                f"output directory is configured. Reports will be saved to: {output_dir}."
+            )
+        else:
+            output_dir = profiling_cfg.output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        output_prefix = cls._get_default_profiling_output_prefix(
+            worker_name,
+            output_dir=output_dir,
+        )
+
+        return manager.modify_profiling_context(
+            python_interpreter_path, profiling_cfg, output_prefix
+        )
+
+    @classmethod
+    def get_profiling_env_vars_for_worker(
+        cls,
+        worker_name: str,
+        profiling_cfg: Optional[ProfileConfig],
+    ) -> dict[str, str]:
+        """Return backend-specific env vars to inject when profiling is active.
+
+        Called alongside :meth:`modify_profile_context`; the
+        returned dict is merged into the worker's environment so that backends
+        relying on env-var configuration (e.g. ``ROCPROFSYS_OUTPUT_PATH``) work
+        without requiring manual ``node_groups.env_configs`` entries.
+
+        Returns an empty dict when profiling is disabled or no env vars are needed.
+        """
+        if profiling_cfg is None:
+            return {}
+
+        from ..hardware.accelerators.accelerator import AcceleratorManager
+        from ..manager import WorkerAddress
+
+        worker_group_name = WorkerAddress.from_name(worker_name).root_group_name
+        if not profiling_cfg.profiles_worker_group(worker_group_name):
+            return {}
+
+        manager = None
+        for accel_type, cfg_cls in AcceleratorManager.profiling_config_register.items():
+            if isinstance(profiling_cfg, cfg_cls):
+                manager = AcceleratorManager.manager_register.get(accel_type)
+                break
+
+        if manager is None:
+            return {}
+
+        output_dir = profiling_cfg.output_dir or tempfile.gettempdir()
+        os.makedirs(output_dir, exist_ok=True)
+        output_prefix = cls._get_default_profiling_output_prefix(
+            worker_name, output_dir=output_dir
+        )
+        return manager.get_profiling_env_vars(profiling_cfg, output_prefix)
+
     def allocate(
         self,
         cls: type["Worker"],
@@ -532,11 +717,57 @@ class Cluster:
         if cfg_python_path is not None:
             python_interpreter_path = cfg_python_path
 
-        options = {
-            "runtime_env": {
+        _profiling_cfg = (
+            self._cluster_cfg.profiling if self._cluster_cfg is not None else None
+        )
+        if _profiling_cfg is not None:
+            from ..manager import WorkerAddress
+
+            worker_group_name = WorkerAddress.from_name(worker_name).root_group_name
+            if (
+                _profiling_cfg.profiles_worker_group(worker_group_name)
+                and _profiling_cfg.backend not in node.profiler_backends
+            ):
+                raise RuntimeError(
+                    f"Profiling backend '{_profiling_cfg.backend}' is enabled for worker "
+                    f"group '{worker_group_name}' but is not available on node "
+                    f"{node.node_rank} ({node.node_ip}). "
+                    f"Available backends: {node.profiler_backends}. "
+                    f"Please install the required tools before running with profiling enabled."
+                )
+        python_interpreter_path = self.modify_profile_context(
+            python_interpreter_path=python_interpreter_path,
+            worker_name=worker_name,
+            profiling_cfg=_profiling_cfg,
+        )
+        profiling_env_vars = self.get_profiling_env_vars_for_worker(
+            worker_name=worker_name,
+            profiling_cfg=_profiling_cfg,
+        )
+        if profiling_env_vars:
+            merged_env_vars = self.merge_worker_env_vars(
+                merged_env_vars,
+                profiling_env_vars,
+                path_env_merge_mode,
+            )
+
+        if self._runtime_code_sync_strip_roots:
+            merged_env_vars = Cluster._strip_sync_roots_from_pythonpath(
+                merged_env_vars,
+                self._runtime_code_sync_strip_roots,
+            )
+        runtime_env_worker = Cluster._combine_ray_runtime_env(
+            Cluster._job_code_sync_fragment_for_child_runtime_env(
+                self._ray_code_sync_fragment
+            ),
+            {
                 "py_executable": python_interpreter_path,
                 "env_vars": merged_env_vars,
             },
+        )
+
+        options = {
+            "runtime_env": runtime_env_worker,
             "name": worker_name,
             "scheduling_strategy": ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                 node_id=node.ray_id,
@@ -632,3 +863,175 @@ class Cluster:
             incoming_entries + existing_entries
         )
         return os.pathsep.join(merged_entries)
+
+    @staticmethod
+    def _combine_ray_runtime_env(
+        fragment: Optional[dict[str, Any]],
+        overlay: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Merge Ray ``runtime_env`` dicts without dropping ``fragment`` extras (``py_modules``, ``working_dir``, …)."""
+        merged: dict[str, Any] = dict(fragment or {})
+        overlay_copy = dict(overlay)
+        overlay_vars = overlay_copy.pop("env_vars", None)
+        merged_vars = dict(merged.pop("env_vars", None) or {})
+        merged.update(overlay_copy)
+        if overlay_vars:
+            merged_vars.update(overlay_vars)
+        if merged_vars:
+            merged["env_vars"] = merged_vars
+        return merged
+
+    @staticmethod
+    def _job_code_sync_fragment_for_child_runtime_env(
+        job_fragment: Optional[dict[str, Any]],
+    ) -> Optional[dict[str, Any]]:
+        """Return a copy of the job-level code-sync fragment safe for actor/task ``runtime_env``.
+
+        Ray only accepts local ``py_modules`` / ``working_dir`` on ``ray.init``; packaging then applies
+        to the whole job. Passing the same local paths on ``.options(runtime_env=...)`` raises
+        ``ValueError: ... is not a valid URI`` (see Ray ``_validate_no_local_paths``).
+        Child actors inherit the driver's job runtime environment, so these keys must be omitted.
+        """
+        if not job_fragment:
+            return None
+        stripped = {
+            k: v
+            for k, v in job_fragment.items()
+            if k not in ("py_modules", "working_dir")
+        }
+        return stripped or None
+
+    @classmethod
+    def _infer_rlinf_repo_root_for_ray_working_dir(cls) -> str:
+        """Find the RLinf checkout root (directory containing ``pyproject.toml``)."""
+        import rlinf
+
+        cur = Path(rlinf.__file__).resolve().parent
+        for _ in range(12):
+            if (cur / "pyproject.toml").is_file():
+                return str(cur)
+            if cur.parent == cur:
+                break
+            cur = cur.parent
+        cwd = Path.cwd()
+        if (cwd / "pyproject.toml").is_file() and (cwd / "rlinf").is_dir():
+            return str(cwd.resolve())
+        raise RuntimeError(
+            f"{cls.SYS_NAME} could not infer the repo root for "
+            f"{cls.get_full_env_var_name(ClusterEnvVar.CODE_WORKING_DIR)}=auto "
+            "(no pyproject.toml parent of `rlinf` and current directory is not "
+            "an RLinf checkout). Set RLINF_CODE_WORKING_DIR to an absolute "
+            "path of the repo on the launch node."
+        )
+
+    @staticmethod
+    def _paths_equivalent_for_code_sync(left: str, right_canonical: str) -> bool:
+        """Whether ``left`` resolves to the same directory as launch-node repo root."""
+        try:
+            l_c = os.path.normcase(os.path.realpath(os.path.expanduser(left)))
+            r_c = os.path.normcase(os.path.realpath(right_canonical))
+            return l_c == r_c
+        except OSError:
+            return os.path.normcase(
+                os.path.abspath(os.path.expanduser(left))
+            ) == os.path.normcase(os.path.abspath(right_canonical))
+
+    @classmethod
+    def _resolve_explicit_abs_path_to_repo_and_rlinf(
+        cls,
+        abs_path: Path,
+        env_var_key: str,
+    ) -> tuple[Path, Path]:
+        resolved = abs_path.expanduser().resolve()
+        if not resolved.is_dir():
+            raise FileNotFoundError(
+                f"{env_var_key} points to a non-directory path: {resolved}"
+            )
+        if (resolved / "pyproject.toml").is_file() and (
+            resolved / "rlinf" / "__init__.py"
+        ).is_file():
+            return resolved, resolved / "rlinf"
+        if resolved.name == "rlinf" and (resolved / "__init__.py").is_file():
+            return resolved.parent, resolved
+        raise RuntimeError(
+            f"{env_var_key}={resolved}: expected a repository root with "
+            "pyproject.toml and rlinf/__init__.py, or an absolute path to "
+            "the rlinf package directory."
+        )
+
+    @classmethod
+    def _strip_sync_roots_from_pythonpath(
+        cls,
+        env_vars: dict[str, str],
+        strip_roots: tuple[str, ...],
+    ) -> dict[str, str]:
+        """Drop PYTHONPATH segments that duplicate shipped paths (Ray injects ``py_modules``)."""
+        if not strip_roots:
+            return env_vars
+        out = dict(env_vars)
+        k = "PYTHONPATH"
+        if k not in out:
+            return out
+        kept = [
+            e
+            for e in Cluster._split_path_entries(out[k])
+            if not any(cls._paths_equivalent_for_code_sync(e, r) for r in strip_roots)
+        ]
+        if kept:
+            out[k] = os.pathsep.join(kept)
+        else:
+            del out[k]
+        return out
+
+    @classmethod
+    def _prepare_ray_code_sync_runtime_env_fragment(
+        cls,
+    ) -> tuple[Optional[dict[str, Any]], tuple[str, ...]]:
+        """Build Ray ``runtime_env`` with ``py_modules`` for the ``rlinf`` package only."""
+        env_key = cls.get_full_env_var_name(ClusterEnvVar.CODE_WORKING_DIR)
+        raw = (os.environ.get(env_key) or "").strip()
+
+        lowered = raw.lower()
+        if lowered in {"0", "false", "no", "off"}:
+            return None, ()
+
+        if raw == "":
+            return None, ()
+        if lowered == "auto":
+            repo_root = Path(cls._infer_rlinf_repo_root_for_ray_working_dir())
+        else:
+            path_obj = Path(raw).expanduser()
+            if not path_obj.is_absolute():
+                raise RuntimeError(
+                    f"{env_key} must be 'auto', an absolute path, or unset/0/off for no sync; "
+                    f"got {raw!r}."
+                )
+            repo_root, rlinf_pkg = cls._resolve_explicit_abs_path_to_repo_and_rlinf(
+                path_obj, env_key
+            )
+            if not (rlinf_pkg / "__init__.py").is_file():
+                raise FileNotFoundError(
+                    f"rlinf package missing or invalid at {rlinf_pkg}."
+                )
+            py_mod_path = rlinf_pkg.resolve()
+            fragment: dict[str, Any] = {"py_modules": [str(py_mod_path)]}
+            strip_roots = {
+                os.path.realpath(str(repo_root)),
+                os.path.realpath(str(rlinf_pkg)),
+                os.path.realpath(str(py_mod_path)),
+            }
+            return fragment, tuple(sorted(strip_roots))
+
+        rlinf_pkg = repo_root / "rlinf"
+        if not (rlinf_pkg / "__init__.py").is_file():
+            raise FileNotFoundError(
+                f"rlinf package missing or invalid at {rlinf_pkg} (repo root {repo_root})."
+            )
+        py_mod_path = rlinf_pkg.resolve()
+        fragment = {"py_modules": [str(py_mod_path)]}
+        strip_roots = {
+            os.path.realpath(str(repo_root)),
+            os.path.realpath(str(rlinf_pkg)),
+            os.path.realpath(str(py_mod_path)),
+        }
+        return fragment, tuple(sorted(strip_roots))

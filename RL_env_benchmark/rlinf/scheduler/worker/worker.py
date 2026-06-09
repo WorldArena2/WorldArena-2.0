@@ -14,7 +14,6 @@
 
 import ctypes
 import functools
-import importlib
 import inspect
 import logging
 import os
@@ -32,7 +31,12 @@ import ray.util.state
 import torch
 from omegaconf import OmegaConf
 
-from ..cluster import Cluster, ClusterEnvVar, without_http_proxies
+from ..cluster import (
+    Cluster,
+    ClusterEnvVar,
+    load_user_extension_module,
+    without_http_proxies,
+)
 from ..hardware import AcceleratorType, AcceleratorUtil, HardwareInfo
 from ..manager import WorkerAddress
 
@@ -381,29 +385,7 @@ class Worker(metaclass=WorkerMeta):
 
         The module's register() function will be called once per Worker process.
         """
-        ext_module_name = Cluster.get_sys_env_var(ClusterEnvVar.EXT_MODULE)
-        if ext_module_name is None:
-            return
-
-        try:
-            ext_module = importlib.import_module(ext_module_name)
-            if hasattr(ext_module, "register"):
-                ext_module.register()
-                Worker.logger.debug(
-                    f"Loaded extension module '{ext_module_name}' and called register()"
-                )
-            else:
-                Worker.logger.warning(
-                    f"Extension module '{ext_module_name}' has no register() function"
-                )
-        except ImportError as e:
-            Worker.logger.warning(
-                f"Failed to import extension module '{ext_module_name}': {e}"
-            )
-        except Exception:
-            Worker.logger.exception(
-                f"Error loading extension module '{ext_module_name}'"
-            )
+        load_user_extension_module(logger=Worker.logger)
 
     def __init__(
         self,
@@ -949,26 +931,39 @@ class Worker(metaclass=WorkerMeta):
 
     @staticmethod
     def timer(tag: Optional[str] = None):
-        """Decorator to time a worker function."""
+        """Decorator to time a worker function and emit a profiling annotation."""
 
         def decorator(func):
+            label = tag or func.__name__
             if inspect.iscoroutinefunction(func):
 
                 @functools.wraps(func)
                 async def wrapper(self, *args, **kwargs):
-                    with self.worker_timer(tag or func.__name__):
-                        return await func(self, *args, **kwargs)
+                    with self.worker_timer(label):
+                        with AcceleratorUtil.profiling_range(
+                            self._accelerator_type, label
+                        ):
+                            return await func(self, *args, **kwargs)
 
                 return wrapper
 
             @functools.wraps(func)
             def wrapper(self, *args, **kwargs):
-                with self.worker_timer(tag or func.__name__):
-                    return func(self, *args, **kwargs)
+                with self.worker_timer(label):
+                    with AcceleratorUtil.profiling_range(self._accelerator_type, label):
+                        return func(self, *args, **kwargs)
 
             return wrapper
 
         return decorator
+
+    def start_profile(self, step_idx: int) -> None:
+        """Open a profiling capture window for the given step on this worker."""
+        AcceleratorUtil.start_profiling(self._accelerator_type, step_idx)
+
+    def stop_profile(self) -> None:
+        """Close the current profiling capture window on this worker."""
+        AcceleratorUtil.stop_profiling(self._accelerator_type)
 
     @staticmethod
     def check_worker_alive(worker_name: str) -> bool:

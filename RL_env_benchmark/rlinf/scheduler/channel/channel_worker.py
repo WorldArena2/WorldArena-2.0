@@ -17,6 +17,7 @@ import gc
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..hardware import AcceleratorType
 from ..worker import Worker, WorkerAddress
 from .channel import DEFAULT_KEY
 
@@ -241,11 +242,28 @@ class ChannelWorker(Worker):
 
         """
         super().__init__()
+        self._set_cpu_only_worker_info()
         self._queue_map: dict[str, PeekQueue] = {}
         self._queue_map[DEFAULT_KEY] = PeekQueue(maxsize=maxsize)
         self._key_to_channel_rank: dict[Any, int] = {}
 
         self._mem_cleaner_task = asyncio.create_task(self._mem_cleaner())
+
+    def _set_cpu_only_worker_info(self):
+        """Channel workers are CPU queues; keep their collectives on Gloo."""
+        self._accelerator_type = AcceleratorType.NO_ACCEL
+        self._accelerator_model = ""
+        self._local_accelerator_rank = -1
+        self.global_accelerator_ids = []
+        Worker.accelerator_type = AcceleratorType.NO_ACCEL
+        Worker.torch_device_type = None
+        Worker.torch_platform = None
+
+        self._worker_info.accelerator_type = AcceleratorType.NO_ACCEL
+        self._worker_info.accelerator_model = ""
+        self._worker_info.accelerator_rank = -1
+        self._worker_info.available_accelerators = []
+        self._manager_proxy.register_worker(self._worker_address, self._worker_info)
 
     async def _mem_cleaner(self):
         """A background task that cleans up memory when triggered."""

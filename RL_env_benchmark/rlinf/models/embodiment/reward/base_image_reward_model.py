@@ -107,12 +107,7 @@ class BaseImageRewardModel(BaseRewardModel):
 
         # Apply ImageNet normalization
         if self.normalize:
-            # Move normalization buffers to the same device as images to guard
-            # against timing issues where .to(device) was called before the
-            # CUDA context was fully established (e.g. inside Ray workers).
-            mean = self._mean.to(images.device)
-            std = self._std.to(images.device)
-            images = (images - mean) / std
+            images = (images - self._mean) / self._std
 
         return images
 
@@ -137,14 +132,12 @@ class BaseImageRewardModel(BaseRewardModel):
     def compute_reward(
         self,
         observations: dict[str, Any],
-        task_descriptions: Optional[list[str]] = None,
     ) -> torch.Tensor:
         """Compute rewards from image observations.
 
         Args:
             observations: Dictionary containing:
                 - 'images' or 'main_images': Image tensor of shape [B, C, H, W].
-            task_descriptions: Not used by image models.
 
         Returns:
             torch.Tensor: Reward tensor of shape [B].
