@@ -1,14 +1,5 @@
 """Benchmark runner for real-world policy evaluation.
 
-支持三种模式：
-1. smoke：使用 `make_sample_obs()` 构造最小可用 `new_obs`，用于快速接口自检。
-2. dataset：从训练数据中按 `AgileXDataset` 读取样本，构造 `new_obs`，用于离线能力初筛。
-3. live：通过 `manifold_msg.api.http_protocol.Server.wait_observation()`
-   从真机采集观测，并按 `scripts/pi05_wma_server_eef_vpp.py` 的方式组装 `new_obs`。
-
-dataset 模式会自动把仓库的 `./src` 加到 `sys.path`，不需要手动 export `PYTHONPATH=./src`。
-
-用法：
     python -m real_world_benchmark.benchmark_runner
     python -m real_world_benchmark.benchmark_runner /path/to/policy.py --mode dataset
     python -m real_world_benchmark.benchmark_runner /path/to/policy.py --mode live --send-action
@@ -361,7 +352,7 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument('--use-history', action='store_true', help='include cam_high_memory in live new_obs when available')
     parser.add_argument('--max-steps', type=int, default=1, help='number of live iterations; <=0 means infinite loop')
     parser.add_argument('--action-rate', type=int, default=45, help='action rate used when sending actions back')
-    parser.add_argument('--dataset-dir', default='/ML-vePFS/protected/jinlei/manifold-wma/real_test_data_train/', help='dataset directory for --mode dataset')
+    parser.add_argument('--dataset-dir', default='/path/to/real_test_data_train/', help='dataset directory for --mode dataset')
     parser.add_argument('--dataset-index', type=int, default=1000, help='starting frame index for --mode dataset')
     parser.add_argument('--dataset-step', type=int, default=30, help='frame stride for --mode dataset')
     parser.add_argument('--dataset-limit', type=int, default=1, help='number of dataset samples to evaluate; <=0 means all available from start index')
