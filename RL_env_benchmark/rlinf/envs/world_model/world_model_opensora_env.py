@@ -26,7 +26,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torchvision.transforms as transforms
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 
 # OpenSora imports
 from opensora.registry import MODELS, SCHEDULERS, build_module
@@ -97,7 +97,6 @@ class OpenSoraEnv(BaseWorldEnv):
 
         # Initialize state
         self.current_obs = None  # Will be a tensor [num_envs, 3, 1, t, h, w]
-        self.gt_last_frames = None  # [num_envs, 3, H, W], value range in [-1, 1]
         self.task_descriptions = [""] * self.num_envs
         self.init_ee_poses = [None] * self.num_envs
 
@@ -139,18 +138,8 @@ class OpenSoraEnv(BaseWorldEnv):
         )
         self._is_offloaded = False
 
-        # World model environment type (for RobotWin vs LIBERO branching)
-        self.wm_env_type = self.cfg.get("wm_env_type", "libero")
-        self.is_robotwin_env = self.wm_env_type == "robotwin"
-
     def _build_dataset(self, cfg):
-        action_key = cfg.get("action_key", "delta_action")
-        state_key = cfg.get("state_key", "init_ee_pose")
-        return NpyTrajectoryDatasetWrapper(
-            cfg.initial_image_path,
-            action_key=action_key,
-            state_key=state_key,
-        )
+        return NpyTrajectoryDatasetWrapper(cfg.initial_image_path)
 
     def _load_vae(self):
         # Convert OmegaConf DictConfig to regular dict
@@ -183,59 +172,19 @@ class OpenSoraEnv(BaseWorldEnv):
         return scheduler
 
     def _load_reward_model(self):
-        reward_type = self.world_model_cfg.reward_model.get("type", "ResnetRM")
-        if reward_type == "RoboTwinT5CrossAttn":
-            # RoboTwinT5CrossAttn 不在 opensora registry，手动加载
-            from rlinf.models.embodiment.reward import RoboTwinT5CrossAttnRewardModel
+        rm_cfg = OmegaConf.to_container(self.world_model_cfg.reward_model, resolve=True)
+        rew_model = build_module(rm_cfg, MODELS)
 
-            t5_model_name = self.world_model_cfg.reward_model.get(
-                "t5_model_name", "t5-base"
-            )
-            rew_model = RoboTwinT5CrossAttnRewardModel.from_pretrained(
-                self.world_model_cfg.reward_model.from_pretrained,
-                config={"t5_model_name": t5_model_name},
-            )
-        elif reward_type == "QwenVLMProgressRewardModel":
-            from rlinf.models.embodiment.reward import QwenVLMProgressRewardModel
-
-            rew_model = QwenVLMProgressRewardModel(
-                DictConfig(self.world_model_cfg.reward_model)
-            )
-        elif reward_type == "LPIPSLastFrameRewardModel":
-            from rlinf.models.embodiment.reward import LPIPSLastFrameRewardModel
-
-            rew_model = LPIPSLastFrameRewardModel(
-                DictConfig(self.world_model_cfg.reward_model)
-            )
-        else:
-            # 默认通过 opensora registry 加载 (ResnetRM 等)
-            rm_cfg = OmegaConf.to_container(
-                self.world_model_cfg.reward_model, resolve=True
-            )
-            rew_model = build_module(rm_cfg, MODELS)
         return rew_model
 
     def _load_action_stats(self):
-        """Load action normalization statistics.
-        
-        Supports two JSON formats:
-        - Flat format (LIBERO): {"action": {"q01": [...], "q99": [...]}}
-        - Nested format (RobotWin WebDataset): {"dataset_name": {"action": {...}}}
-        """
+        """Load action normalization statistics"""
         stats_path = self.world_model_cfg.get("stats_path", None)
         if stats_path is not None and os.path.exists(stats_path):
             with open(stats_path, "r") as f:
                 stats = json.load(f)
-            #兼容两种格式:
-            #扁平格式 (LIBERO): {"action": {"q01": [...], "q99": [...]}}
-            #嵌套格式 (RobotWin WebDataset): {"dataset_name": {"action": {...}}}
-            if "action" in stats:
-                action_stats = stats["action"]
-            else:
-                first_key = next(iter(stats))
-                action_stats = stats[first_key]["action"]
-            q01 = np.asarray(action_stats["q01"], np.float32)
-            q99 = np.asarray(action_stats["q99"], np.float32)
+                q01 = np.asarray(stats["action"]["q01"], np.float32)
+                q99 = np.asarray(stats["action"]["q99"], np.float32)
             return {"q01": q01, "q99": q99}
         else:
             raise ValueError(f"Action stats path {stats_path} does not exist")
@@ -245,9 +194,6 @@ class OpenSoraEnv(BaseWorldEnv):
         env_state = {
             "current_obs": recursive_to_device(self.current_obs, "cpu")
             if self.current_obs is not None
-            else None,
-            "gt_last_frames": recursive_to_device(self.gt_last_frames, "cpu")
-            if self.gt_last_frames is not None
             else None,
             "task_descriptions": self.task_descriptions,
             "init_ee_poses": self.init_ee_poses,
@@ -287,11 +233,6 @@ class OpenSoraEnv(BaseWorldEnv):
             if state["current_obs"] is not None
             else None
         )
-        self.gt_last_frames = (
-            recursive_to_device(state["gt_last_frames"], self.device)
-            if state.get("gt_last_frames") is not None
-            else None
-        )
         self.task_descriptions = state["task_descriptions"]
         self.init_ee_poses = state["init_ee_poses"]
         self.elapsed_steps = state["elapsed_steps"]
@@ -320,7 +261,6 @@ class OpenSoraEnv(BaseWorldEnv):
         self.model = self.model.to("cpu")
         self.reward_model = self.reward_model.to("cpu")
         self.current_obs = recursive_to_device(self.current_obs, "cpu")
-        self.gt_last_frames = recursive_to_device(self.gt_last_frames, "cpu")
         self.prev_step_reward = self.prev_step_reward.cpu()
         self.reset_state_ids = self.reset_state_ids.cpu()
         if self.record_metrics:
@@ -345,7 +285,6 @@ class OpenSoraEnv(BaseWorldEnv):
         self.model = self.model.to(self.device, self.inference_dtype)
         self.reward_model = self.reward_model.to(self.device)
         self.current_obs = recursive_to_device(self.current_obs, self.device)
-        self.gt_last_frames = recursive_to_device(self.gt_last_frames, self.device)
         self.prev_step_reward = self.prev_step_reward.to(self.device)
         self.reset_state_ids = self.reset_state_ids.to(self.device)
         if self.record_metrics:
@@ -508,7 +447,6 @@ class OpenSoraEnv(BaseWorldEnv):
 
         # Load first frame from each selected episode
         img_tensors = []
-        gt_last_frame_tensors = []
         task_descriptions = []
         init_ee_poses = []
 
@@ -533,12 +471,6 @@ class OpenSoraEnv(BaseWorldEnv):
             img_tensor = first_frame[
                 "image"
             ]  # Shape: [3, H, W], dtype: float, range: [0, 1]
-            target_items = episode_data.get("target_items", [])
-            if len(target_items) > 0 and "image" in target_items[-1]:
-                gt_last_frame_tensor = target_items[-1]["image"]
-            else:
-                # Fallback if target frame selection is unavailable.
-                gt_last_frame_tensor = img_tensor
 
             # Get init_ee_pose if available
             if "observation.state" in first_frame:
@@ -556,19 +488,9 @@ class OpenSoraEnv(BaseWorldEnv):
                     align_corners=False,
                 )
                 img_tensor = img_tensor.squeeze(0)  # [3, H, W]
-            if gt_last_frame_tensor.shape[1:] != self.image_size:
-                gt_last_frame_tensor = gt_last_frame_tensor.unsqueeze(0)  # [1, 3, H, W]
-                gt_last_frame_tensor = F.interpolate(
-                    gt_last_frame_tensor,
-                    size=self.image_size,
-                    mode="bilinear",
-                    align_corners=False,
-                )
-                gt_last_frame_tensor = gt_last_frame_tensor.squeeze(0)  # [3, H, W]
 
             # Normalize to [-1, 1]
             img_tensor = self.trans_norm(img_tensor)
-            gt_last_frame_tensor = self.trans_norm(gt_last_frame_tensor)
 
             # Repeat to fill condition frames: [3, H, W] -> [3, condition_frame_length, H, W]
             img_tensor = img_tensor.unsqueeze(1).repeat(
@@ -576,11 +498,9 @@ class OpenSoraEnv(BaseWorldEnv):
             )  # [3, condition_frame_length, H, W]
 
             img_tensors.append(img_tensor)
-            gt_last_frame_tensors.append(gt_last_frame_tensor)
 
         # Stack all environments: [num_envs, 3, condition_frame_length, H, W]
         stacked_imgs = torch.stack(img_tensors, dim=0).to(self.device)
-        self.gt_last_frames = torch.stack(gt_last_frame_tensors, dim=0).to(self.device)
 
         # Reshape to [num_envs, 3, 1, condition_frame_length, H, W] for compatibility
         self.current_obs = stacked_imgs.unsqueeze(2).to(self.device)
@@ -672,9 +592,7 @@ class OpenSoraEnv(BaseWorldEnv):
             0, 3, 1, 2, 4, 5
         )  # [num_envs, chunk + condition_frame_length, 3, v, h, w]
 
-        reward_type = self.cfg.world_model_cfg.reward_model.get("type", "ResnetRM")
-
-        if reward_type == "ResnetRM":
+        if self.cfg.world_model_cfg.reward_model.type == "ResnetRM":
             extract_chunk_obs = extract_chunk_obs[
                 :, -self.chunk :, :, :, :, :
             ]  # [num_envs, chunk, 3, v, h, w]
@@ -688,84 +606,10 @@ class OpenSoraEnv(BaseWorldEnv):
 
             rewards = self.reward_model.predict_rew(extract_chunk_obs)
             rewards = rewards.reshape(self.num_envs, self.chunk)
-
-        elif reward_type == "RoboTwinT5CrossAttn":
-            # OpenSora 解码后 current_obs 值域是 [-1, 1]
-            # 手动转换到 [0, 1] 后直接调用 compute_reward()，避免 predict_rew() 内部的双重 preprocess_images：
-            #   predict_rew() → preprocess_images (ImageNet norm) → compute_reward() → _encode_visual() → preprocess_images (ImageNet norm again!)
-            #   compute_reward() → _encode_visual() → preprocess_images (ImageNet norm, single time) ✓
-            extract_chunk_obs = extract_chunk_obs[
-                :, -self.chunk :, :, :, :, :
-            ]  # [num_envs, chunk, 3, v, h, w]
-            extract_chunk_obs = extract_chunk_obs.reshape(
-                self.num_envs * self.chunk, 3, v, h, w
-            )
-            # squeeze dim 2: [num_envs * chunk, 3, h, w]
-            extract_chunk_obs = extract_chunk_obs.squeeze(2)
-            extract_chunk_obs = extract_chunk_obs.to(self.device)
-            
-            # 从 [-1, 1] 转换到 [0, 1]（匹配训练数据分布）
-            extract_chunk_obs_float = ((extract_chunk_obs + 1.0) / 2.0).float()
-
-            # 构建 instruction 列表（每个 env 的 instruction 重复 chunk 次）
-            instructions = []
-            for env_idx in range(self.num_envs):
-                instructions.extend([self.task_descriptions[env_idx]] * self.chunk)
-
-            # 使用 compute_reward() 直接计算奖励（单次 ImageNet normalize）
-            rewards = self.reward_model.compute_reward(
-                extract_chunk_obs_float, task_descriptions=instructions
-            )
-            rewards = rewards.reshape(self.num_envs, self.chunk)
-        elif reward_type == "QwenVLMProgressRewardModel":
-            extract_chunk_obs = extract_chunk_obs[
-                :, -self.chunk :, :, :, :, :
-            ]  # [num_envs, chunk, 3, v, h, w]
-            extract_chunk_obs = extract_chunk_obs.reshape(
-                self.num_envs * self.chunk, 3, v, h, w
-            )
-            extract_chunk_obs = extract_chunk_obs.squeeze(2)
-            extract_chunk_obs = extract_chunk_obs.to(self.device)
-            # OpenSora decoded frames are expected in [-1, 1]. Convert explicitly to
-            # [0, 1] for VLM input to avoid dark/black frames after uint8 conversion.
-            extract_chunk_obs = ((extract_chunk_obs + 1.0) / 2.0).clamp(0.0, 1.0)
-
-            instructions = []
-            for env_idx in range(self.num_envs):
-                instructions.extend([self.task_descriptions[env_idx]] * self.chunk)
-
-            rewards = self.reward_model.compute_reward(
-                extract_chunk_obs, task_descriptions=instructions
-            )
-            rewards = rewards.reshape(self.num_envs, self.chunk)
-        elif reward_type == "LPIPSLastFrameRewardModel":
-            extract_chunk_obs = extract_chunk_obs[
-                :, -self.chunk :, :, :, :, :
-            ]  # [num_envs, chunk, 3, v, h, w]
-            extract_chunk_obs = extract_chunk_obs.reshape(
-                self.num_envs * self.chunk, 3, v, h, w
-            )
-            extract_chunk_obs = extract_chunk_obs.squeeze(2)
-            extract_chunk_obs = extract_chunk_obs.to(self.device)
-
-            if self.gt_last_frames is None:
-                raise ValueError(
-                    "GT last frames are not initialized. Please call reset() before stepping."
-                )
-
-            gt_last_frames = (
-                self.gt_last_frames.unsqueeze(1)
-                .repeat(1, self.chunk, 1, 1, 1)
-                .reshape(self.num_envs * self.chunk, 3, h, w)
-                .to(self.device)
-            )
-            rewards = self.reward_model.compute_reward(
-                extract_chunk_obs, references=gt_last_frames
-            )
-            rewards = rewards.reshape(self.num_envs, self.chunk)
-
         else:
-            raise ValueError(f"Unknown reward model type: {reward_type}")
+            raise ValueError(
+                f"Unknown reward model type: {self.cfg.world_model_cfg.reward_model.type}"
+            )
 
         return rewards
 
@@ -926,9 +770,8 @@ class OpenSoraEnv(BaseWorldEnv):
         # Convert to uint8 tensor
         full_image = full_image.to(torch.uint8)
 
-        # Get states - dimension configurable via action_dim (RobotWin=14, LIBERO=7)
-        state_dim = getattr(self.cfg, "action_dim", 16)
-        states = torch.zeros((num_envs, state_dim), device=self.device, dtype=torch.float32)
+        # Get states (dummy for now, can be extended)
+        states = torch.zeros((num_envs, 16), device=self.device, dtype=torch.float32)
 
         # Get task descriptions
         if hasattr(self, "task_descriptions"):
@@ -981,18 +824,6 @@ class OpenSoraEnv(BaseWorldEnv):
         chunk_rewards = self._infer_next_chunk_rewards()
         chunk_rewards_tensors = self._calc_step_reward(chunk_rewards)
 
-        # Debug: print per-chunk, per-step rewards
-        if getattr(self.cfg, "print_chunk_rewards", False):
-            with torch.no_grad():
-                # chunk_rewards: [num_envs, chunk], chunk_rewards_tensors: [num_envs, chunk]
-                raw = chunk_rewards.cpu().numpy()  # 原始 reward model 输出
-                diff = chunk_rewards_tensors.cpu().numpy()  # 差分 reward
-                for env_idx in range(self.num_envs):
-                    raw_str = ", ".join([f"{v:.4f}" for v in raw[env_idx]])
-                    diff_str = ", ".join([f"{v:.4f}" for v in diff[env_idx]])
-                    print(f"[chunk={self.elapsed_steps//self.chunk}] env{env_idx} "
-                          f"raw=[{raw_str}] diff=[{diff_str}]")
-
         # Estimate success (terminations) based on rewards
         estimated_success = self._estimate_success_from_rewards(chunk_rewards)
 
@@ -1040,7 +871,7 @@ class OpenSoraEnv(BaseWorldEnv):
         )
 
 
-# PYTHONPATH="/mnt/project_rlinf/jzn/workspace/opensora:$PYTHONPATH" python -m rlinf.envs.world_model.world_model_opensora_env
+# PYTHONPATH="/path/to/opensora:$PYTHONPATH" python -m rlinf.envs.world_model.world_model_opensora_env
 if __name__ == "__main__":
     from pathlib import Path
 

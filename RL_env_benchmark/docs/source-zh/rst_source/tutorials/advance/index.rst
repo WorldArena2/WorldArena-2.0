@@ -1,54 +1,54 @@
 高级特性
 ==============================
 
-本章将逐步深入讲解 RLinf 如何实现 **高效执行**，  
+本章将逐步深入讲解 RLinf 如何实现 **高效执行**，
 并提供实用指南，帮助你充分优化 RL 后训练工作流。
 
-- :doc:`5D`  
-   解释 RLinf 如何支持 Megatron 风格的 5D 并行，包括：  
-   张量并行 (TP)、数据并行 (DP)、流水线并行 (PP)、  
-   序列并行 (SP) 和上下文并行 (CP)。  
-   学习如何配置和组合这些维度，以高效扩展大模型。  
+- :doc:`lora`
+   展示如何在 RLinf 中集成低秩适配 (LoRA)，
+   以极小的计算开销实现参数高效的微调。
 
-- :doc:`lora`  
-   展示如何在 RLinf 中集成低秩适配 (LoRA)，  
-   以极小的计算开销实现参数高效的微调。  
+- :doc:`5D`
+   解释 RLinf 如何支持 Megatron 风格的 5D 并行，包括：
+   张量并行 (TP)、数据并行 (DP)、流水线并行 (PP)、
+   序列并行 (SP) 和上下文并行 (CP)。
+   学习如何配置和组合这些维度，以高效扩展大模型。
 
-- :doc:`version`  
-   描述如何在不同的 SGLang 版本之间动态切换，  
-   以满足不同的兼容性需求或实验要求。  
+- :doc:`cluster`
+   介绍全局唯一的 *Cluster* 对象，负责协调分布式训练中所有角色、
+   进程和跨节点通信。涵盖 Ray 初始化、节点发现和 Worker 分配。
 
-- :doc:`resume`  
-   讲解如何从保存的检查点恢复训练，  
-   以确保容错性，并为长时间或中断的训练任务提供无缝衔接。  
+- :doc:`collective`
+   介绍 Worker 之间底层、高性能的 Python 对象交换，
+   使用 CUDA IPC 和 NCCL 等优化的点对点后端以降低通信开销。
 
-- :doc:`convertor`  
-   讲解如何从保存的checkpoint文件转换到huggingface safetensors文件，  
-   用于评估checkpoint性能或上传到huggingface仓库。  
+- :doc:`version`
+   描述如何在不同的 SGLang 版本之间动态切换，
+   以满足不同的兼容性需求或实验要求。
 
-- :doc:`hetero`  
-   介绍如何配置和使用异构软硬件集群，  
-   以充分利用不同类型的计算资源和硬件设备。  
+- :doc:`profile`
+   介绍 ``cluster.profiling`` 配置，支持通过 ``nsys profile``（NVIDIA）或
+   ``rocprof-sys-python``（AMD）包装指定的 Ray worker group，并说明
+   ``enabled``、``worker_groups``、``steps``、``output_dir`` 等公共字段的用法。
 
-- :doc:`cloud-edge`
-   展示如何使用 EasyTier 搭建云边协同训练环境，把云端与边缘节点接入同一个
-   overlay 网络，并在该网络之上运行 RLinf。
+- :doc:`dynamic_scheduling`
+   涵盖 RLinf 的在线扩缩与动态调度机制：如何在训练过程中对资源进行
+   秒级弹性扩缩与组件间迁移，以最大化吞吐和利用率，
+   包括前置依赖、配置示例和可选调度策略。
 
-- :doc:`logger`  
-   介绍如何在训练过程中可视化和跟踪关键指标。  
-   目前，我们支持三种实验追踪与可视化后端：  
-   TensorBoard、Weights & Biases (wandb) 和 SwanLab。  
-
+- :doc:`auto_placement`
+   详细介绍 RLinf 中自动放置的具体实现，
+   包括如何正确配置以启用自动放置功能。
 
 .. toctree::
    :hidden:
    :maxdepth: 2
 
-   5D
    lora
+   5D
+   cluster
+   collective
    version
-   resume
-   convertor
-   hetero
-   cloud-edge
-   logger
+   profile
+   dynamic_scheduling
+   auto_placement

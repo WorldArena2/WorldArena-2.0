@@ -26,7 +26,7 @@ from torch.distributed.fsdp import (
 from torch.optim import Optimizer
 
 from rlinf.config import torch_dtype_from_precision
-from rlinf.hybrid_engines.fsdp import FSDP
+from rlinf.hybrid_engines.fsdp import FSDP, CPUOffload
 from rlinf.hybrid_engines.fsdp.strategy.base import FSDPStrategyBase
 from rlinf.hybrid_engines.fsdp.utils import (
     FSDPVersion,
@@ -41,6 +41,96 @@ from rlinf.utils.utils import clear_memory
 
 
 class FSDPStrategy(FSDPStrategyBase):
+    _FSDP_CACHE_ATTRS = (
+        "_mp_shard",
+        "_full_param_padded",
+        "_full_prec_full_param_padded",
+        "_unsharded_flat_param_for_skipped_views",
+    )
+    _FSDP_GRAD_ATTRS = ("_saved_grad_shard", "_cpu_grad")
+
+    @staticmethod
+    def _iter_fsdp_handles(model: FSDP) -> list:
+        handles = []
+        seen_handle_ids = set()
+        for module in model.modules():
+            handle = getattr(module, "_handle", None)
+            if handle is not None and id(handle) not in seen_handle_ids:
+                seen_handle_ids.add(id(handle))
+                handles.append(handle)
+
+            all_handles = getattr(module, "_all_handles", None)
+            if all_handles is None:
+                continue
+            for inner_handle in all_handles:
+                if inner_handle is None or id(inner_handle) in seen_handle_ids:
+                    continue
+                seen_handle_ids.add(id(inner_handle))
+                handles.append(inner_handle)
+        return handles
+
+    @staticmethod
+    def _move_tensor(
+        tensor: torch.Tensor | None, device: torch.device | str
+    ) -> torch.Tensor | None:
+        if tensor is None or tensor.device == torch.device(device):
+            return tensor
+        return tensor.to(device, non_blocking=True)
+
+    @staticmethod
+    def _free_tensor_storage(tensor: torch.Tensor | None) -> None:
+        if tensor is None:
+            return
+        try:
+            storage = tensor.untyped_storage()
+            if storage.size() > 0:
+                storage.resize_(0)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _rebind_sharded_tensor_views(handle) -> None:
+        flat_param = handle.flat_param
+        if not handle.uses_sharded_strategy:
+            handle._use_unsharded_views(as_params=False)
+            return
+
+        size_0_empty_tensor = torch.empty(
+            0,
+            dtype=flat_param.dtype,
+            device=flat_param.device,
+            requires_grad=False,
+        )
+        for shard_param_info, (param_name, module, _) in zip(
+            flat_param._shard_param_infos,
+            flat_param._param_infos,
+        ):
+            if not shard_param_info.in_shard:
+                tensor = size_0_empty_tensor
+            else:
+                offset = shard_param_info.offset_in_shard
+                numel_in_shard = shard_param_info.numel_in_shard
+                tensor = flat_param[offset : offset + numel_in_shard]
+            handle._setattr_tensor(module, param_name, tensor)
+
+        for (
+            param_name,
+            module,
+            _,
+            prim_param_name,
+            prim_module,
+            _,
+        ) in flat_param._shared_param_infos:
+            handle._setattr_tensor(
+                module, param_name, getattr(prim_module, prim_param_name)
+            )
+
+    def _rebind_handle_views(self, handle) -> None:
+        if handle._use_orig_params:
+            handle._use_sharded_views()
+            return
+        self._rebind_sharded_tensor_views(handle)
+
     def wrap_model(self, model: nn.Module, device_mesh: DeviceMesh) -> FSDP:
         """
         Wrap the model with FSDP using the specified configuration,
@@ -78,6 +168,8 @@ class FSDPStrategy(FSDPStrategyBase):
             self.cfg.fsdp_config.backward_prefetch
         )
 
+        cpu_offload = CPUOffload(offload_params=self.cfg.fsdp_config.cpu_offload)
+
         fsdp_model = FSDP(
             module=model,
             param_init_fn=init_fn,
@@ -91,6 +183,7 @@ class FSDPStrategy(FSDPStrategyBase):
             backward_prefetch=backward_prefetch,
             limit_all_gathers=self.cfg.fsdp_config.limit_all_gathers,
             use_orig_params=self.cfg.fsdp_config.use_orig_params,
+            cpu_offload=cpu_offload,
         )
         return fsdp_model
 
@@ -123,27 +216,41 @@ class FSDPStrategy(FSDPStrategyBase):
             - model (FSDP): The FSDP wrapped model.
             - offload_grad (bool): Whether to offload gradients or not.
         """
+        for handle in self._iter_fsdp_handles(model):
+            flat_param = handle.flat_param
+
+            if hasattr(flat_param, "_local_shard"):
+                flat_param._local_shard = self._move_tensor(
+                    flat_param._local_shard, "cpu"
+                )
+            flat_param.data = self._move_tensor(flat_param.data, "cpu")
+            if hasattr(flat_param, "_local_shard") and flat_param.data is not None:
+                flat_param._local_shard = flat_param.data
+
+            if offload_grad:
+                flat_param.grad = self._move_tensor(flat_param.grad, "cpu")
+                for attr_name in self._FSDP_GRAD_ATTRS:
+                    if hasattr(flat_param, attr_name):
+                        setattr(
+                            flat_param,
+                            attr_name,
+                            self._move_tensor(getattr(flat_param, attr_name), "cpu"),
+                        )
+
+            for attr_name in self._FSDP_CACHE_ATTRS:
+                if hasattr(flat_param, attr_name):
+                    self._free_tensor_storage(getattr(flat_param, attr_name))
+
+            self._rebind_handle_views(handle)
+
         for _, param in model.named_parameters():
-            if hasattr(param, "_handle") and param._handle is not None:
-                flat_param = param._handle.flat_param
-                if (
-                    hasattr(flat_param, "_local_shard")
-                    and flat_param._local_shard is not None
-                ):
-                    flat_param._local_shard = flat_param._local_shard.to(
-                        "cpu", non_blocking=True
-                    )
-                if flat_param.data is not None:
-                    flat_param.data = flat_param.data.to("cpu", non_blocking=True)
-                    flat_param._local_shard = flat_param.data
-            elif hasattr(param, "_local_shard") and param._local_shard is not None:
-                param._local_shard = param._local_shard.to("cpu", non_blocking=True)
+            param.data = self._move_tensor(param.data, "cpu")
+            if offload_grad:
+                param.grad = self._move_tensor(param.grad, "cpu")
 
-            if param.data is not None:
-                param.data = param.data.to("cpu", non_blocking=True)
+        for _, buffer in model.named_buffers():
+            buffer.data = self._move_tensor(buffer.data, "cpu")
 
-            if offload_grad and param.grad is not None:
-                param.grad = param.grad.to("cpu", non_blocking=True)
         clear_memory()
 
     @torch.no_grad()
@@ -159,27 +266,37 @@ class FSDPStrategy(FSDPStrategyBase):
             - onload_grad (bool): Whether to load gradients or not.
 
         """
+        for handle in self._iter_fsdp_handles(model):
+            flat_param = handle.flat_param
+
+            if hasattr(flat_param, "_local_shard"):
+                flat_param._local_shard = self._move_tensor(
+                    flat_param._local_shard, device
+                )
+            flat_param.data = self._move_tensor(flat_param.data, device)
+            if hasattr(flat_param, "_local_shard") and flat_param.data is not None:
+                flat_param._local_shard = flat_param.data
+
+            if onload_grad:
+                flat_param.grad = self._move_tensor(flat_param.grad, device)
+                for attr_name in self._FSDP_GRAD_ATTRS:
+                    if hasattr(flat_param, attr_name):
+                        setattr(
+                            flat_param,
+                            attr_name,
+                            self._move_tensor(getattr(flat_param, attr_name), device),
+                        )
+
+            self._rebind_handle_views(handle)
+
         for _, param in model.named_parameters():
-            if hasattr(param, "_handle") and param._handle is not None:
-                flat_param = param._handle.flat_param
-                if (
-                    hasattr(flat_param, "_local_shard")
-                    and flat_param._local_shard is not None
-                ):
-                    flat_param._local_shard = flat_param._local_shard.to(
-                        device, non_blocking=True
-                    )
-                if flat_param.data is not None:
-                    flat_param.data = flat_param.data.to(device, non_blocking=True)
-                    flat_param._local_shard = flat_param.data
-            elif hasattr(param, "_local_shard") and param._local_shard is not None:
-                param._local_shard = param._local_shard.to(device, non_blocking=True)
+            param.data = self._move_tensor(param.data, device)
+            if onload_grad:
+                param.grad = self._move_tensor(param.grad, device)
 
-            if param.data is not None:
-                param.data = param.data.to(device, non_blocking=True)
+        for _, buffer in model.named_buffers():
+            buffer.data = self._move_tensor(buffer.data, device)
 
-            if onload_grad and param.grad is not None:
-                param.grad = param.grad.to(device, non_blocking=True)
         clear_memory()
 
     @torch.no_grad()
@@ -238,6 +355,7 @@ class FSDPStrategy(FSDPStrategyBase):
         device = torch.device(f"{Worker.torch_device_type}:{os.environ['LOCAL_RANK']}")
         max_norm = float(self.cfg.optim.clip_grad)
         norm_type = float(norm_type)
+        debug_nan_checks = self.cfg.get("debug_nan_checks", False)
         all_handles = getattr(model, "_all_handles", None)
         if all_handles is None:
             raise RuntimeError("Expected FSDP root module with `_all_handles`.")
@@ -290,6 +408,11 @@ class FSDPStrategy(FSDPStrategyBase):
             torch.tensor(0.0, device=device, dtype=torch.float32),
             device,
         )
+        if debug_nan_checks and not torch.isfinite(local_sharded_norm):
+            raise RuntimeError(
+                "Non-finite local_sharded_norm from "
+                "get_grad_norm_for_mixed_precision(sharded_params)."
+            )
         local_nonsharded_norm = (
             get_grad_norm_for_mixed_precision(
                 nonsharded_params,
@@ -300,6 +423,15 @@ class FSDPStrategy(FSDPStrategyBase):
             if nonsharded_params
             else None
         )
+        if (
+            debug_nan_checks
+            and local_nonsharded_norm is not None
+            and not torch.isfinite(local_nonsharded_norm)
+        ):
+            raise RuntimeError(
+                "Non-finite local_nonsharded_norm from "
+                "get_grad_norm_for_mixed_precision(nonsharded_params)."
+            )
 
         if norm_type == torch.inf:
             total_norm = (
@@ -318,6 +450,19 @@ class FSDPStrategy(FSDPStrategyBase):
             if local_nonsharded_norm is not None:
                 total_norm += local_nonsharded_norm**norm_type
             total_norm = total_norm ** (1.0 / norm_type)
+        if debug_nan_checks and not torch.isfinite(total_norm):
+            nonfinite_grad_count = 0
+            for grad in grads:
+                nonfinite_grad_count += int((~torch.isfinite(grad)).sum().item())
+            if nonfinite_grad_count == 0:
+                raise RuntimeError(
+                    "Non-finite total_norm in clip_grad_norm_ with finite gradients. "
+                    "Suspect reduction/power path inside grad norm computation."
+                )
+            raise RuntimeError(
+                "Non-finite total_norm in clip_grad_norm_ and gradients already "
+                f"contain non-finite values (count={nonfinite_grad_count})."
+            )
 
         grad_norm = float(total_norm.item())
 

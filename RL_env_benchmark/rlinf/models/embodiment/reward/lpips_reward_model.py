@@ -25,11 +25,7 @@ from rlinf.models.embodiment.reward.base_reward_model import BaseRewardModel
 
 
 class LPIPSLastFrameRewardModel(BaseRewardModel):
-    """Reward model using LPIPS distance to the GT last frame.
-
-    This model compares generated observations with the corresponding
-    ground-truth trajectory last frame and outputs a scalar reward.
-    """
+    """Reward generated frames by LPIPS distance to the GT last frame."""
 
     def __init__(self, cfg: DictConfig) -> None:
         super().__init__(cfg)
@@ -49,8 +45,7 @@ class LPIPSLastFrameRewardModel(BaseRewardModel):
                 "Expected one of {'one_minus', 'negative', 'raw'}."
             )
 
-        self.lpips_model = lpips.LPIPS(net=self.lpips_net)
-        self.lpips_model.eval()
+        self.lpips_model = lpips.LPIPS(net=self.lpips_net).eval()
 
     def _to_nchw_minus1_1(self, images: torch.Tensor) -> torch.Tensor:
         if images.dim() != 4:
@@ -98,7 +93,6 @@ class LPIPSLastFrameRewardModel(BaseRewardModel):
 
         obs = self._to_nchw_minus1_1(observations)
         ref = self._to_nchw_minus1_1(references).to(obs.device)
-        # LPIPS returns [N, 1, 1, 1].
         dist = self.lpips_model(obs, ref).view(-1)
 
         if self.reward_transform == "raw":

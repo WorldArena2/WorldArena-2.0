@@ -14,6 +14,7 @@
 
 import io
 import os
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Optional, Union
 
@@ -80,7 +81,7 @@ class WanEnv(BaseWorldEnv):
         # Initialize state
         # Will be a tensor [num_envs, 3, 1, T, h, w]
         self.current_obs = None
-        # GT last frame for each selected episode, used by LPIPS reward.
+        # Ground-truth last frame for each selected episode, used by LPIPS reward.
         self.gt_last_frames = None
         self.task_descriptions = [""] * self.num_envs
         self.init_ee_poses = [None] * self.num_envs
@@ -93,7 +94,6 @@ class WanEnv(BaseWorldEnv):
 
         # Condition action to generate video,
         # keep length of condition_frame_length
-        # 支持可配置的action维度 (LIBERO=7, RobotWin=7或14)
         self.action_dim = cfg.get("action_dim", 7)
         self.condition_action = torch.zeros(
             self.num_envs,
@@ -106,8 +106,7 @@ class WanEnv(BaseWorldEnv):
         self.is_libero_env = self.wm_env_type == "libero"
         self.is_robotwin_env = self.wm_env_type == "robotwin"
 
-        # LIBERO: 夹爪打开设为-1
-        # RobotWin: 使用绝对位置控制，不需要特殊处理
+        # LIBERO uses -1 for the open gripper condition; RobotWin uses absolute actions.
         if self.reset_gripper_open and self.is_libero_env:
             self.condition_action[:, :, -1] = -1
 
@@ -122,9 +121,7 @@ class WanEnv(BaseWorldEnv):
         self._is_offloaded = False
 
     def _build_dataset(self, cfg):
-        # 支持可配置的action_key (LIBERO='delta_action', RobotWin='abs_action')
         action_key = cfg.get("action_key", "delta_action")
-        
         return NpyTrajectoryDatasetWrapper(
             cfg.initial_image_path,
             enable_kir=self.enable_kir,
@@ -134,7 +131,7 @@ class WanEnv(BaseWorldEnv):
     def _build_pipeline(self):
         pipe = WanVideoPipeline.from_pretrained(
             torch_dtype=torch.bfloat16,
-            device="cuda:0",
+            device=self._get_runtime_device_str(),
             model_configs=[
                 # Paths are loaded from yaml
                 ModelConfig(path=self.cfg.model_path, offload_device="cpu"),
@@ -149,16 +146,18 @@ class WanEnv(BaseWorldEnv):
     def _load_reward_model(self):
         if self.cfg.reward_model.type == "ResnetRewModel":
             from diffsynth.models.reward_model import ResnetRewModel
+
             rew_model = ResnetRewModel(self.cfg.reward_model.from_pretrained)
         elif self.cfg.reward_model.type == "TaskEmbedResnetRewModel":
             from diffsynth.models.reward_model import TaskEmbedResnetRewModel
+
             rew_model = TaskEmbedResnetRewModel(
                 checkpoint_path=self.cfg.reward_model.from_pretrained,
                 task_suite_name=self.cfg.task_suite_name,
             )
         elif self.cfg.reward_model.type == "RoboTwinT5CrossAttn":
-            # RobotWin T5 Cross-Attention Reward模型
             from rlinf.models.embodiment.reward import RoboTwinT5CrossAttnRewardModel
+
             t5_model_name = self.cfg.reward_model.get("t5_model_name", "t5-base")
             rew_model = RoboTwinT5CrossAttnRewardModel.from_pretrained(
                 self.cfg.reward_model.from_pretrained,
@@ -166,18 +165,16 @@ class WanEnv(BaseWorldEnv):
             )
         elif self.cfg.reward_model.type == "QwenVLMProgressRewardModel":
             from omegaconf import DictConfig
+
             from rlinf.models.embodiment.reward import QwenVLMProgressRewardModel
 
-            rew_model = QwenVLMProgressRewardModel(
-                DictConfig(self.cfg.reward_model)
-            )
+            rew_model = QwenVLMProgressRewardModel(DictConfig(self.cfg.reward_model))
         elif self.cfg.reward_model.type == "LPIPSLastFrameRewardModel":
             from omegaconf import DictConfig
+
             from rlinf.models.embodiment.reward import LPIPSLastFrameRewardModel
 
-            rew_model = LPIPSLastFrameRewardModel(
-                DictConfig(self.cfg.reward_model)
-            )
+            rew_model = LPIPSLastFrameRewardModel(DictConfig(self.cfg.reward_model))
         else:
             raise ValueError(f"Unknown reward model type: {self.cfg.reward_model.type}")
         return rew_model
@@ -375,7 +372,6 @@ class WanEnv(BaseWorldEnv):
                 1, self.condition_frame_length, 1, 1
             )  # [3, condition_frame_length, H, W]
 
-            # 使用可配置的action维度
             env_condition_action = np.zeros(
                 (self.condition_frame_length, self.action_dim), dtype=np.float32
             )
@@ -389,7 +385,7 @@ class WanEnv(BaseWorldEnv):
             if len(target_items) > 0 and "image" in target_items[-1]:
                 gt_last_frame_tensor = target_items[-1]["image"]
             else:
-                # Fallback: when dataset has no target_items, use initial frame.
+                # Fallback for datasets without target items.
                 gt_last_frame_tensor = img_tensor
 
             # first condition frame is the reference frame,
@@ -418,14 +414,14 @@ class WanEnv(BaseWorldEnv):
 
             img_tensors.append(env_img_tensor)
             if gt_last_frame_tensor.shape[1:] != self.image_size:
-                gt_last_frame_tensor = gt_last_frame_tensor.unsqueeze(0)  # [1, 3, H, W]
+                gt_last_frame_tensor = gt_last_frame_tensor.unsqueeze(0)
                 gt_last_frame_tensor = F.interpolate(
                     gt_last_frame_tensor,
                     size=self.image_size,
                     mode="bilinear",
                     align_corners=False,
                 )
-                gt_last_frame_tensor = gt_last_frame_tensor.squeeze(0)  # [3, H, W]
+                gt_last_frame_tensor = gt_last_frame_tensor.squeeze(0)
             gt_last_frame_tensor = self.trans_norm(gt_last_frame_tensor)
             gt_last_frame_tensors.append(gt_last_frame_tensor)
             condition_actions.append(torch.from_numpy(env_condition_action))
@@ -552,19 +548,14 @@ class WanEnv(BaseWorldEnv):
             )  # [num_envs * chunk, 3, h, w]
             extract_chunk_obs = extract_chunk_obs.to(self.device)
 
-            # Convert from [-1, 1] to [0, 1] float (matching training data distribution)
-            # Use compute_reward() directly to avoid double ImageNet normalization:
-            #   predict_rew() → preprocess_images (ImageNet norm) → compute_reward() → _encode_visual() → preprocess_images (ImageNet norm again!)
-            #   compute_reward() → _encode_visual() → preprocess_images (ImageNet norm, single time) ✓
+            # compute_reward expects [0, 1] and handles ImageNet normalization once.
             extract_chunk_obs_float = ((extract_chunk_obs + 1.0) / 2.0).float()
 
-            # Prepare instructions for each frame in the chunk
             instructions = []
             for env_idx in range(self.num_envs):
                 task_desc = self.task_descriptions[env_idx]
                 instructions.extend([task_desc] * self.chunk)
 
-            # Compute rewards with T5 text conditioning (single ImageNet normalization)
             rewards = self.reward_model.compute_reward(
                 extract_chunk_obs_float, task_descriptions=instructions
             )
@@ -686,7 +677,9 @@ class WanEnv(BaseWorldEnv):
         for env_idx in range(num_envs):
             frames = []
             for img in output[env_idx]:
-                arr = np.array(img) / 255.0
+                # Keep frame tensors in fp32 to avoid silent fp64 promotion
+                # that can significantly increase GPU memory usage.
+                arr = np.asarray(img, dtype=np.float32) / 255.0
                 arr = arr * 2.0 - 1.0
                 frames.append(arr)
 
@@ -702,7 +695,9 @@ class WanEnv(BaseWorldEnv):
             all_samples.append(video[:, 5:])
 
         # Stack all environments: [num_envs, C, T, H, W]
-        x_samples = torch.stack(all_samples, dim=0).to(self.device)
+        x_samples = torch.stack(all_samples, dim=0).to(
+            self.device, dtype=self.current_obs.dtype
+        )
 
         # Reshape to match current_obs format: [num_envs, C, 1, T, H, W]
         x_samples = x_samples.unsqueeze(2)
@@ -736,7 +731,7 @@ class WanEnv(BaseWorldEnv):
         full_image = last_frame.permute(0, 2, 3, 1)  # [b, H, W, 3]
         # Denormalize from [-1, 1] to [0, 255]
         full_image = (full_image + 1.0) / 2.0 * 255.0
-        full_image = torch.clamp(full_image, 0, 255)
+        full_image = torch.clamp(full_image.float(), 0, 255)
         # print(f'full_image:{full_image.shape}')
         # print(f'image_size:{self.image_size}')
         # Resize to 256x256 to match libero_env format
@@ -753,8 +748,10 @@ class WanEnv(BaseWorldEnv):
         # Convert to uint8 tensor (keep as tensor, not numpy)
         full_image = full_image.to(torch.uint8)
 
-        # Get states (dummy, dimension matches action_dim for norm_stats compatibility)
-        states = torch.zeros((num_envs, self.action_dim), device=self.device, dtype=torch.float32)
+        # Dummy state dimension follows the action dimension for OpenPI norm stats.
+        states = torch.zeros(
+            (num_envs, self.action_dim), device=self.device, dtype=torch.float32
+        )
 
         # Get task descriptions
         if hasattr(self, "task_descriptions"):
@@ -792,7 +789,12 @@ class WanEnv(BaseWorldEnv):
         """Execute a chunk of actions - optimized version that processes chunk actions together"""
         # chunk_actions: [num_envs, chunk_steps, action_dim=8]
         self.onload()
-        with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+        autocast_context = (
+            torch.amp.autocast(device_type=self.device.type, dtype=torch.bfloat16)
+            if self.device.type != "cpu"
+            else nullcontext()
+        )
+        with autocast_context:
             self._infer_next_chunk_frames(policy_output_action)
 
         # Update elapsed steps (incremented after inference)
@@ -806,12 +808,10 @@ class WanEnv(BaseWorldEnv):
         chunk_rewards = self._infer_next_chunk_rewards()
         chunk_rewards_tensors = self._calc_step_reward(chunk_rewards)
 
-        # Debug: print per-chunk, per-step rewards (same as OpenSoraEnv / GenieEnv)
         if getattr(self.cfg, "print_chunk_rewards", False):
             with torch.no_grad():
-                # chunk_rewards: [num_envs, chunk], chunk_rewards_tensors: [num_envs, chunk]
-                raw = chunk_rewards.cpu().numpy()  # raw reward model output
-                diff = chunk_rewards_tensors.cpu().numpy()  # step / relative reward
+                raw = chunk_rewards.detach().cpu().numpy()
+                diff = chunk_rewards_tensors.detach().cpu().numpy()
                 for env_idx in range(self.num_envs):
                     raw_str = ", ".join([f"{v:.4f}" for v in raw[env_idx]])
                     diff_str = ", ".join([f"{v:.4f}" for v in diff[env_idx]])
@@ -892,7 +892,7 @@ class WanEnv(BaseWorldEnv):
         if self.record_metrics:
             self.success_once = self.success_once.cpu()
             self.returns = self.returns.cpu()
-        torch.cuda.empty_cache()
+        self._clear_accelerator_cache()
         self._is_offloaded = True
 
     def onload(self):
@@ -941,7 +941,7 @@ class WanEnv(BaseWorldEnv):
         return buffer.getvalue()
 
 
-# PYTHONPATH="/mnt/project_rlinf/jzn/workspace/release/DiffSynth-Studio:$PYTHONPATH" python -m rlinf.envs.world_model.world_model_wan_env
+# PYTHONPATH="/path/to/DiffSynth-Studio:$PYTHONPATH" python -m rlinf.envs.world_model.world_model_wan_env
 if __name__ == "__main__":
     from pathlib import Path
 

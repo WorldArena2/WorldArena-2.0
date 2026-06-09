@@ -17,7 +17,6 @@ import os
 import signal
 import sys
 import threading
-import traceback
 import time
 from dataclasses import dataclass
 from typing import Generic, Optional, TypeVar
@@ -489,9 +488,8 @@ class WorkerGroupFuncResult:
             self._local_results = ray.get(self._remote_results)
         except Exception as e:
             print(
-                f"Exception occurred while running {self._cls_name}'s function {self._func_name}: {type(e).__name__}: {e}"
+                f"Exception occurred while running {self._cls_name}'s function {self._func_name}: exception is {e}"
             )
-            print(traceback.format_exc())
             sys.stdout.flush()
             sys.stderr.flush()
             # Send suicide signal if one thread failed, the handler is registered in cluster

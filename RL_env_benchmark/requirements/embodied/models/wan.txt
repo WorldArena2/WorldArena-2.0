@@ -7,3 +7,5 @@ pandas
 deepspeed==0.18.4
 seaborn
 lpips
+fastapi
+uvicorn

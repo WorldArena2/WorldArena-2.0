@@ -296,23 +296,6 @@ For π\ :sub:`0`\ + PPO training in RoboTwin, it is recommended to reuse the Rob
             num_images_in_input: 3
             detach_critic_input: True
 
-**1.4** :math:`\pi_0.5` **Single-View + PPO**
-
-For single-view (head camera only) training and evaluation, use the following configuration:
-
-.. code-block:: yaml
-
-   actor:
-      model:
-         model_path: "/path/to/RLinf/RLinf-Pi05-RoboTwin-SFT-click_bell"
-         num_action_chunks: 50 # interface for the env
-         action_dim: 14
-         add_value_head: True
-         OpenPI:
-            config_name: "pi05_aloha_robotwin_head"
-            num_images_in_input: 1
-            detach_critic_input: True
-
 
 **2. Environment Configuration**
 
@@ -341,8 +324,7 @@ For OpenPI configurations (π\ :sub:`0`\ / π\ :sub:`0.5`\ ), the following addi
 
 - ``env.train.center_crop: False`` and ``env.eval.center_crop: False``: disable center cropping
 - ``env.*.task_config.embodiment: [aloha-agilex]``: switch to the AgileX robot embodiment configuration
-- ``env.*.task_config.camera.collect_wrist_camera: true``: enable wrist camera input (for multi-view)
-- ``env.*.task_config.camera.collect_wrist_camera: false``: disable wrist camera input (for single-view, head camera only)
+- ``env.*.task_config.camera.collect_wrist_camera: true``: enable wrist camera input
 
 
 **3. Configuration Files**
@@ -352,15 +334,8 @@ The following configuration files can be directly referenced for RoboTwin:
 - **OpenVLA-OFT + GRPO**：``examples/embodiment/config/robotwin_place_empty_cup_grpo_openvlaoft.yaml``
 - **π₀ + PPO**：``examples/embodiment/config/robotwin_adjust_bottle_ppo_OpenPI.yaml``
 - **π₀ Eval**：``examples/embodiment/config/robotwin_adjust_bottle_ppo_OpenPI_eval.yaml``
-- **π₀.₅ + PPO (Multi-View)**：``examples/embodiment/config/robotwin_adjust_bottle_ppo_OpenPI_pi05.yaml``
-- **π₀.₅ Eval (Multi-View)**：``examples/embodiment/config/robotwin_adjust_bottle_ppo_OpenPI_pi05_eval.yaml``
-- **π₀.₅ + PPO (Single-View)**：``examples/sft/config/robotwin_sft_openpi_pi05_click_bell.yaml`` (for SFT training with head camera only)
-
-For single-view evaluation, you can create an eval configuration based on the multi-view eval config with the following changes:
-
-- Set ``actor.model.OpenPI.config_name: "pi05_aloha_robotwin_head"``
-- Set ``actor.model.OpenPI.num_images_in_input: 1``
-- Set ``env.eval.task_config.camera.collect_wrist_camera: false``
+- **π₀.₅ + PPO**：``examples/embodiment/config/robotwin_adjust_bottle_ppo_OpenPI_pi05.yaml``
+- **π₀.₅ Eval**：``examples/embodiment/config/robotwin_adjust_bottle_ppo_OpenPI_pi05_eval.yaml``
 
 
 **4. Launch Command**
@@ -543,30 +518,7 @@ In most cases, evaluation mode can be enabled by simply setting ``runner.only_ev
 
    Taking the PPO algorithm and the ``adjust_bottle`` task as an example, the corresponding configuration file is:
 
-   - **Multi-View**: ``examples/embodiment/config/robotwin_adjust_bottle_ppo_OpenPI_pi05_eval.yaml``
-
-   For **single-view** (head camera only) evaluation, you need to modify the configuration based on the multi-view eval config:
-
-   - Set ``actor.model.OpenPI.config_name: "pi05_aloha_robotwin_head"``
-   - Set ``actor.model.OpenPI.num_images_in_input: 1``
-   - Set ``env.eval.task_config.camera.collect_wrist_camera: false``
-
-   Example single-view eval configuration:
-
-   .. code-block:: yaml
-
-      actor:
-        model:
-          model_path: "/path/to/RLinf/RLinf-Pi05-RoboTwin-SFT-click_bell"
-          openpi:
-            config_name: "pi05_aloha_robotwin_head"
-            num_images_in_input: 1
-
-      env:
-        eval:
-          task_config:
-            camera:
-              collect_wrist_camera: false
+   - ``examples/embodiment/config/robotwin_adjust_bottle_ppo_OpenPI_pi05_eval.yaml``
 
 4. **Evaluation Mode Configuration**
 
@@ -636,14 +588,12 @@ OpenVLA-OFT Key Configuration
    - ``actor.model.num_action_chunks: 50``：number of action chunks
    - ``actor.model.action_dim: 14``：action dimension
    - ``actor.model.add_value_head: True``：PPO training requires a value head
-   - ``actor.model.OpenPI.num_images_in_input: 3``：number of input images (multi-view)
-   - ``actor.model.OpenPI.num_images_in_input: 1``：number of input images (single-view, head camera only)
+   - ``actor.model.OpenPI.num_images_in_input: 3``：number of input images
 
 2. **Model Configuration Name**：
 
    - π\ :sub:`0`：``actor.model.OpenPI.config_name: "pi0_aloha_robotwin"``
-   - π\ :sub:`0.5` (Multi-View)：``actor.model.OpenPI.config_name: "pi05_aloha_robotwin"``
-   - π\ :sub:`0.5` (Single-View)：``actor.model.OpenPI.config_name: "pi05_aloha_robotwin_head"``
+   - π\ :sub:`0.5`：``actor.model.OpenPI.config_name: "pi05_aloha_robotwin"``
 
 3. **Algorithm Configuration**：
 

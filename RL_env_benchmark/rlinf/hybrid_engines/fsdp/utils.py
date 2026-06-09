@@ -27,11 +27,13 @@
 # limitations under the License.
 
 import functools
+import warnings
 from enum import Enum
 from typing import ContextManager, Iterable, Optional, Union
 
 import torch
 from accelerate import init_empty_weights
+from packaging import version
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.fsdp.wrap import (
     _module_wrap_policy,
@@ -59,18 +61,10 @@ class FSDPVersion(str, Enum):
     FSDP2 = "fsdp2"
 
 
-def create_device_mesh(world_size, fsdp_size):
-    if fsdp_size < 0 or fsdp_size >= world_size:
-        device_mesh = init_device_mesh(
-            Worker.torch_device_type, mesh_shape=(world_size,), mesh_dim_names=["fsdp"]
-        )
-    else:
-        device_mesh = init_device_mesh(
-            Worker.torch_device_type,
-            mesh_shape=(world_size // fsdp_size, fsdp_size),
-            mesh_dim_names=["ddp", "fsdp"],
-        )
-    return device_mesh
+def create_device_mesh(world_size):
+    return init_device_mesh(
+        Worker.torch_device_type, mesh_shape=(world_size,), mesh_dim_names=["fsdp"]
+    )
 
 
 def init_fn(x: torch.nn.Module):
@@ -95,6 +89,64 @@ def get_init_weight_context_manager(use_meta_tensor=True):
     return init_context
 
 
+def _normalize_wrap_targets(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Iterable):
+        return list(value)
+    return [value]
+
+
+def _resolve_module_classes_to_wrap(module, module_classes_to_wrap):
+    resolved_module_classes = set()
+    for module_class in _normalize_wrap_targets(module_classes_to_wrap) or []:
+        if isinstance(module_class, str):
+            resolved_class = get_module_class_from_name(module, module_class)
+            if resolved_class is None:
+                raise Exception("Could not find the module class to wrap in the model.")
+            resolved_module_classes.add(resolved_class)
+        else:
+            raise TypeError(
+                "module_classes_to_wrap entries must be class name strings; "
+                f"got {type(module_class).__name__!r}"
+            )
+    return resolved_module_classes
+
+
+def _fsdp2_fully_shard_supports_ignored_params() -> bool:
+    """Whether :func:`fully_shard` accepts ``ignored_params`` (PyTorch 2.7+)."""
+    try:
+        v = torch.__version__.split("+", 1)[0]
+        return version.parse(v) >= version.parse("2.7.0")
+    except Exception:
+        return False
+
+
+def _collect_ignored_params_for_fsdp2(
+    module, ignored_module_classes
+) -> set[torch.nn.Parameter]:
+    """
+    Map ``ignored_module_classes`` (same string convention as ``module_classes_to_wrap``)
+    to a set of ``nn.Parameter`` for :func:`fully_shard`'s ``ignored_params``.
+
+    Those parameters stay unsharded (typically replicated on each rank) and are not part of
+    FSDP all-gather / reduce-scatter groups — useful for small frozen towers like CLIP ViT.
+    """
+    if not ignored_module_classes:
+        return set()
+    resolved = _resolve_module_classes_to_wrap(module, ignored_module_classes)
+    if not resolved:
+        return set()
+    cls_tuple = tuple(resolved)
+    out: set[torch.nn.Parameter] = set()
+    for sub in module.modules():
+        if isinstance(sub, cls_tuple):
+            out.update(sub.parameters())
+    return out
+
+
 def get_fsdp_wrap_policy(module, config=None, is_lora=False, model_type=None):
     """
     FSDP wrap policy that handles both standard transformer models and VLA models.
@@ -112,30 +164,55 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, model_type=None):
 
     if config.get("disable", False):
         return None
+    wrap_policy_config = config.get("wrap_policy", {}) or {}
+    use_custom_wrap_policy = any(
+        key in wrap_policy_config
+        for key in (
+            "transformer_layer_cls_to_wrap",
+            "module_classes_to_wrap",
+            "no_split_names",
+        )
+    )
 
-    # Get transformer layer classes to wrap
-    if hasattr(module, "language_model"):
-        # For VLA models, get transformer classes from language_model submodule
-        default_transformer_cls_names_to_wrap = getattr(
-            module.language_model, "_no_split_modules", None
+    if use_custom_wrap_policy:
+        fsdp_transformer_layer_cls_to_wrap = _normalize_wrap_targets(
+            wrap_policy_config.get("transformer_layer_cls_to_wrap")
+        )
+        module_classes_to_wrap = wrap_policy_config.get("module_classes_to_wrap")
+        no_split_names = _normalize_wrap_targets(
+            wrap_policy_config.get("no_split_names")
         )
     else:
-        # For standard models, get transformer classes directly from module
-        default_transformer_cls_names_to_wrap = getattr(
-            module, "_no_split_modules", None
-        )
+        if hasattr(module, "language_model"):
+            # For VLA models, get transformer classes from language_model submodule
+            default_transformer_cls_names_to_wrap = getattr(
+                module.language_model, "_no_split_modules", None
+            )
+        else:
+            # For standard models, get transformer classes directly from module
+            default_transformer_cls_names_to_wrap = getattr(
+                module, "_no_split_modules", None
+            )
 
-    fsdp_transformer_layer_cls_to_wrap = config.get("wrap_policy", {}).get(
-        "transformer_layer_cls_to_wrap", default_transformer_cls_names_to_wrap
-    )
+        fsdp_transformer_layer_cls_to_wrap = _normalize_wrap_targets(
+            default_transformer_cls_names_to_wrap
+        )
+        module_classes_to_wrap = None
+        no_split_names = getattr(module, "_no_split_names", None)
 
     # Build policies list
     policies = []
 
-    from rlinf.models.embodiment.modules.resnet_utils import ResNet10
+    if SupportedModel(model_type) in [
+        SupportedModel.CNN_POLICY,
+        SupportedModel.FLOW_POLICY,
+    ]:
+        from rlinf.models.embodiment.modules.resnet_utils import ResNet10
 
-    resnet_policy = functools.partial(_module_wrap_policy, module_classes={ResNet10})
-    policies.append(resnet_policy)
+        resnet_policy = functools.partial(
+            _module_wrap_policy, module_classes={ResNet10}
+        )
+        policies.append(resnet_policy)
 
     # Add vision transformer policies for OpenVLA models
     if SupportedModel(model_type) in [
@@ -204,6 +281,15 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, model_type=None):
             )
         policies.append(q_head_policy)
 
+    if module_classes_to_wrap:
+        module_classes_to_wrap = _resolve_module_classes_to_wrap(
+            module, module_classes_to_wrap
+        )
+        custom_module_policy = functools.partial(
+            _module_wrap_policy, module_classes=module_classes_to_wrap
+        )
+        policies.append(custom_module_policy)
+
     # Add transformer layer policies
     if fsdp_transformer_layer_cls_to_wrap is not None:
         transformer_cls_to_wrap = set()
@@ -223,21 +309,21 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, model_type=None):
         )
         policies.append(llm_wrap_policy)
 
-    if hasattr(module, "_no_split_names"):
-        no_split_names = getattr(module, "_no_split_names", None)
-        if no_split_names is not None:
-            from torch.distributed.fsdp.wrap import lambda_auto_wrap_policy
+    if no_split_names is not None:
+        from torch.distributed.fsdp.wrap import lambda_auto_wrap_policy
 
-            def lambda_policy_fn(module):
-                return (
-                    hasattr(module, "_fsdp_wrap_name")
-                    and module._fsdp_wrap_name in no_split_names
-                )
+        no_split_names = set(_normalize_wrap_targets(no_split_names))
 
-            lambda_policy = functools.partial(
-                lambda_auto_wrap_policy, lambda_fn=lambda_policy_fn
+        def lambda_policy_fn(module):
+            return (
+                hasattr(module, "_fsdp_wrap_name")
+                and module._fsdp_wrap_name in no_split_names
             )
-            policies.append(lambda_policy)
+
+        lambda_policy = functools.partial(
+            lambda_auto_wrap_policy, lambda_fn=lambda_policy_fn
+        )
+        policies.append(lambda_policy)
 
     # Add LoRA lambda policy if enabled
     if is_lora:
@@ -292,38 +378,70 @@ def apply_fsdp2_to_model(
     """
     if config is None:
         config = {}
-
-    if hasattr(module, "language_model"):
-        default_transformer_cls_names_to_wrap = getattr(
-            module.language_model, "_no_split_modules", None
+    wrap_policy_config = config.get("wrap_policy", {}) or {}
+    use_custom_wrap_policy = any(
+        key in wrap_policy_config
+        for key in (
+            "transformer_layer_cls_to_wrap",
+            "module_classes_to_wrap",
+            "no_split_names",
         )
-    else:
-        default_transformer_cls_names_to_wrap = getattr(
-            module, "_no_split_modules", None
-        )
-
-    fsdp_transformer_layer_cls_to_wrap = config.get("wrap_policy", {}).get(
-        "transformer_layer_cls_to_wrap", default_transformer_cls_names_to_wrap
     )
 
-    if isinstance(fsdp_transformer_layer_cls_to_wrap, str):
-        fsdp_transformer_layer_cls_to_wrap = [fsdp_transformer_layer_cls_to_wrap]
+    if use_custom_wrap_policy:
+        fsdp_transformer_layer_cls_to_wrap = _normalize_wrap_targets(
+            wrap_policy_config.get("transformer_layer_cls_to_wrap")
+        )
+        module_classes_to_wrap = wrap_policy_config.get("module_classes_to_wrap")
+        no_split_names = _normalize_wrap_targets(
+            wrap_policy_config.get("no_split_names")
+        )
+    else:
+        if hasattr(module, "language_model"):
+            default_transformer_cls_names_to_wrap = getattr(
+                module.language_model, "_no_split_modules", None
+            )
+        else:
+            default_transformer_cls_names_to_wrap = getattr(
+                module, "_no_split_modules", None
+            )
+        fsdp_transformer_layer_cls_to_wrap = _normalize_wrap_targets(
+            default_transformer_cls_names_to_wrap
+        )
+        module_classes_to_wrap = None
+        no_split_names = None
+        assert (
+            len(fsdp_transformer_layer_cls_to_wrap) > 0
+            and fsdp_transformer_layer_cls_to_wrap[0] is not None
+        )
 
-    assert (
-        len(fsdp_transformer_layer_cls_to_wrap) > 0
-        and fsdp_transformer_layer_cls_to_wrap[0] is not None
+    transformer_cls_names = set(fsdp_transformer_layer_cls_to_wrap or [])
+    custom_module_classes = tuple(
+        _resolve_module_classes_to_wrap(module, module_classes_to_wrap)
+    )
+    no_split_name_set = set(no_split_names or [])
+    tie_word_embeddings = getattr(
+        getattr(module, "config", None), "tie_word_embeddings", False
     )
 
     modules_to_shard = []
 
     for name, submodule in module.named_modules():
-        if submodule.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or (
-            isinstance(submodule, torch.nn.Embedding)
-            and not getattr(module.config, "tie_word_embeddings", False)
+        if (
+            submodule.__class__.__name__ in transformer_cls_names
+            or (custom_module_classes and isinstance(submodule, custom_module_classes))
+            or (
+                no_split_name_set
+                and getattr(submodule, "_fsdp_wrap_name", None) in no_split_name_set
+            )
+            or (isinstance(submodule, torch.nn.Embedding) and not tie_word_embeddings)
         ):
             modules_to_shard.append((name, submodule, "transformer_or_embedding"))
 
-    for name, submodule, module_type in modules_to_shard:
+    # named_modules() returns submodules outermost-first, but fully_shard should
+    # be applied inside-out. Reversing ensures child modules are wrapped first,
+    # so the parent only shards the remaining (non-wrapped) parameters.
+    for name, submodule, module_type in reversed(modules_to_shard):
         fully_shard(
             submodule,
             mesh=device_mesh,
@@ -332,13 +450,34 @@ def apply_fsdp2_to_model(
             reshard_after_forward=reshard_after_forward,
         )
 
-    return fully_shard(
-        module,
-        mesh=device_mesh,
-        mp_policy=mp_policy,
-        offload_policy=offload_policy,
-        reshard_after_forward=False,
-    )
+    root_kwargs = {
+        "mesh": device_mesh,
+        "mp_policy": mp_policy,
+        "offload_policy": offload_policy,
+        "reshard_after_forward": False,
+    }
+
+    if _fsdp2_fully_shard_supports_ignored_params():
+        ignored_module_classes = config.get(
+            "ignored_module_classes"
+        ) or wrap_policy_config.get("ignored_module_classes")
+        ignored_params = _collect_ignored_params_for_fsdp2(
+            module, ignored_module_classes
+        )
+        root_kwargs["ignored_params"] = ignored_params
+    elif (
+        "ignored_module_classes" in config
+        or "ignored_module_classes" in wrap_policy_config
+    ):
+        warnings.warn(
+            "ignored_module_classes is configured but the current PyTorch version "
+            "does not support ignored_params in FSDP2 fully_shard; the setting will "
+            "be ignored. Upgrade to PyTorch >= 2.7 for this feature.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    return fully_shard(module, **root_kwargs)
 
 
 def get_fsdp2_full_state_dict_all_ranks(
@@ -513,12 +652,12 @@ def get_grad_norm(
         return 0.0
 
     total_norm = 0.0
-
+    device = grads_for_norm[0].device
     # Calculate norm.
     if norm_type == torch.inf:
         total_norm = max(grad.abs().max().item() for grad in grads_for_norm)
         total_norm_cuda = torch.tensor(
-            [float(total_norm)], dtype=torch.float, device="cuda"
+            [float(total_norm)], dtype=torch.float, device=device
         )
         # Take max across all data-parallel GPUs if using FSDP and then all model-parallel GPUs.
         if dp_group is not None:
@@ -538,10 +677,10 @@ def get_grad_norm(
             total_norm = torch.tensor(
                 float(total_norm),
                 dtype=torch.float,
-                device=grads_for_norm[0].device,
+                device=device,
             )
         else:
-            total_norm = total_norm.to(device=grads_for_norm[0].device)
+            total_norm = total_norm.to(device=device)
 
         # Sum across all data-parallel GPUs if using FSDP and then all model-parallel GPUs.
         if dp_group is not None:

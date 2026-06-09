@@ -29,12 +29,11 @@ class SupportedEnvType(Enum):
     HABITAT = "habitat"
     OPENSORAWM = "opensora_wm"
     WANWM = "wan_wm"
-    NN_WORLD_MODEL = "nn_world_model"
-    GENIE_WM = "genie_wm"
-    CTRLWORLD_WM = "ctrlworld_wm"
-    COSMOSWM = "cosmos_wm"
-    IVIDEOGPTWM = "ivideogpt_wm"
-    IRASIMWM = "irasim_wm"
+    WANWM_HTTP = "wan_wm_http"
+    GENESIS = "genesis"
+    EMBODICHAIN = "embodichain"
+    ROBOVERSE = "roboverse"
+    D4RL = "d4rl"
 
 
 def get_env_cls(env_type: str, env_cfg=None):
@@ -100,7 +99,7 @@ def get_env_cls(env_type: str, env_cfg=None):
 
         return RobocasaEnv
     elif env_type == SupportedEnvType.REALWORLD:
-        from rlinf.envs.realworld.realworld_env import RealWorldEnv
+        from rlinf.envs.realworld import RealWorldEnv
 
         return RealWorldEnv
     elif env_type == SupportedEnvType.HABITAT:
@@ -111,6 +110,10 @@ def get_env_cls(env_type: str, env_cfg=None):
         from rlinf.envs.frankasim.frankasim_env import FrankaSimEnv
 
         return FrankaSimEnv
+    elif env_type == SupportedEnvType.GENESIS:
+        from rlinf.envs.genesis.genesis_env import GenesisEnv
+
+        return GenesisEnv
     elif env_type == SupportedEnvType.OPENSORAWM:
         from rlinf.envs.world_model.world_model_opensora_env import OpenSoraEnv
 
@@ -119,25 +122,21 @@ def get_env_cls(env_type: str, env_cfg=None):
         from rlinf.envs.world_model.world_model_wan_env import WanEnv
 
         return WanEnv
-    elif env_type == SupportedEnvType.GENIE_WM:
-        from rlinf.envs.world_model.world_model_genie_env import GenieEnv
+    elif env_type == SupportedEnvType.WANWM_HTTP:
+        from rlinf.envs.world_model.world_model_wan_http_env import WanHttpProxyEnv
 
-        return GenieEnv
-    elif env_type == SupportedEnvType.CTRLWORLD_WM:
-        from rlinf.envs.world_model.world_model_ctrlworld_env import CtrlWorldEnv
+        return WanHttpProxyEnv
+    elif env_type == SupportedEnvType.EMBODICHAIN:
+        from rlinf.envs.embodichain.embodichain_env import EmbodiChainEnv
 
-        return CtrlWorldEnv
-    elif env_type == SupportedEnvType.COSMOSWM:
-        from rlinf.envs.world_model.world_model_cosmos_env import CosmosEnv
+        return EmbodiChainEnv
+    elif env_type == SupportedEnvType.ROBOVERSE:
+        from rlinf.envs.roboverse.roboverse_env import RoboVerseEnv
 
-        return CosmosEnv
-    elif env_type == SupportedEnvType.IVIDEOGPTWM:
-        from rlinf.envs.world_model.world_model_ivideogpt_env import IVideoGPTEnv
+        return RoboVerseEnv
+    elif env_type == SupportedEnvType.D4RL:
+        from rlinf.envs.d4rl.d4rl_env import D4RLEnv
 
-        return IVideoGPTEnv
-    elif env_type == SupportedEnvType.IRASIMWM:
-        from rlinf.envs.world_model.world_model_irasim_env import IRASIMEnv
-
-        return IRASIMEnv
+        return D4RLEnv
     else:
         raise NotImplementedError(f"Environment type {env_type} not implemented")

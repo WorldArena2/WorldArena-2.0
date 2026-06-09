@@ -200,14 +200,12 @@ def _decode_aloha(data: dict, *, adapt_to_pi: bool = False) -> dict:
         base_images = convert_image(data["observation/image"])
         state = np.asarray(data["observation/state"])
 
-        # Handle optional wrist images
         wrist_image = data.get("observation/wrist_image")
         if wrist_image is None:
-            # No wrist images available - use base image for all cameras
             data["images"] = {
                 "cam_high": base_images,
-                "cam_left_wrist": base_images,  # Fallback to base image
-                "cam_right_wrist": base_images,  # Fallback to base image
+                "cam_left_wrist": base_images,
+                "cam_right_wrist": base_images,
             }
         else:
             wrist_images = convert_image(wrist_image)

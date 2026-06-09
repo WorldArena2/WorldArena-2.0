@@ -25,9 +25,10 @@ from rlinf.config import SupportedModel
 from rlinf.data.embodied_io_struct import (
     RolloutResult,
 )
+from rlinf.hybrid_engines.weight_syncer import WeightSyncer
 from rlinf.models import get_model
 from rlinf.models.embodiment.base_policy import BasePolicy
-from rlinf.scheduler import Channel, Cluster, CollectiveGroupOptions, Worker
+from rlinf.scheduler import Channel, Cluster, Worker
 from rlinf.utils.comm_mapping import CommMapper
 from rlinf.utils.placement import HybridComponentPlacement
 
@@ -44,24 +45,17 @@ class MultiStepRolloutWorker(Worker):
 
         self.num_pipeline_stages = cfg.rollout.pipeline_stage_num
         self.enable_offload = self.cfg.rollout.get("enable_offload", False)
-        self.sync_weight_load_instant = self.cfg.rollout.get(
-            "sync_weight_load_instant", True
-        )
 
         self.placement = HybridComponentPlacement(cfg, Cluster())
 
-        actor_world_size = self.placement.get_world_size("actor")
-        self.actor_weight_src_rank = self._rank % actor_world_size
+        rollout_world_size = self.placement.get_world_size("rollout")
+        self.actor_weight_src_rank = 0
+        self._weight_sync_rollout_ranks = list(range(rollout_world_size))
+        self._weight_sync_is_sender = self._rank == 0
         self.rollout_epoch = cfg.algorithm.get("rollout_epoch", 1)
         self.collect_transitions = self.cfg.rollout.get("collect_transitions", False)
         self.expert_model = None
 
-        # Sync weight comm options
-        max_ctas = cfg.rollout.get("sync_weight_nccl_max_ctas", None)
-        min_ctas = cfg.rollout.get("sync_weight_nccl_min_ctas", None)
-        self._sync_weight_comm_options = CollectiveGroupOptions(
-            accel_max_ctas=max_ctas, accel_min_ctas=min_ctas
-        )
         self.total_num_train_envs = cfg.env.train.total_num_envs
         self.total_num_eval_envs = cfg.env.eval.total_num_envs
         self.num_pipeline_stages = cfg.rollout.pipeline_stage_num
@@ -86,6 +80,13 @@ class MultiStepRolloutWorker(Worker):
         self.collect_prev_infos = self.cfg.rollout.get("collect_prev_infos", True)
         self.version = 0
         self.finished_episodes = None
+
+        weight_syncer_cfg = OmegaConf.select(cfg, "weight_syncer", default=None)
+        assert weight_syncer_cfg is not None, (
+            "rollout.weight_syncer config must be provided"
+        )
+        self.weight_syncer = WeightSyncer.create(weight_syncer_cfg)
+        self._sync_weight_comm_options = self.weight_syncer.comm_options
 
     def init_worker(self):
         rollout_model_config = copy.deepcopy(self.cfg.actor.model)
@@ -258,8 +259,11 @@ class MultiStepRolloutWorker(Worker):
             SupportedModel.OPENPI,
             SupportedModel.MLP_POLICY,
             SupportedModel.GR00T,
+            SupportedModel.GR00T_N1D6,
+            SupportedModel.ABOT_M0,
             SupportedModel.DREAMZERO,
             SupportedModel.CNN_POLICY,
+            SupportedModel.CFG_MODEL,
         ]:
             if self.cfg.algorithm.loss_type == "embodied_dagger":
                 kwargs = {"mode": "eval"}
@@ -341,48 +345,48 @@ class MultiStepRolloutWorker(Worker):
         return final_values[:, :1].cpu().contiguous()
 
     async def sync_model_from_actor(self):
-        """Sync model parameters from the actor worker using bucket-based receiving.
+        """Sync model parameters from the actor worker."""
 
-        This method receives weights in buckets to reduce peak memory usage,
-        preventing OOM on GPUs with limited memory.
-        """
-
-        # Receive first bucket to get bucket_length
-        bucket_length = await self.recv(
-            self.actor_group_name,
-            src_rank=self.actor_weight_src_rank,
-            async_op=True,
-            options=self._sync_weight_comm_options,
-        ).async_wait()
-
-        if self.sync_weight_load_instant:
-            if self.enable_offload:
-                self.reload_model()
-        else:
-            cpu_buffer = {}
-
-        for _ in range(bucket_length):
-            bucket: dict[str, torch.Tensor] = await self.recv(
-                self.actor_group_name,
-                src_rank=self.actor_weight_src_rank,
+        async def recv_func() -> Any:
+            return await self.broadcast(
+                None,
+                groups=[
+                    (self.actor_group_name, self.actor_weight_src_rank),
+                    (self._group_name, self._weight_sync_rollout_ranks),
+                ],
+                src=(self.actor_group_name, self.actor_weight_src_rank),
                 async_op=True,
                 options=self._sync_weight_comm_options,
             ).async_wait()
-            if self.sync_weight_load_instant:
-                # load state dict instantly
-                self.hf_model.load_state_dict(bucket, strict=False)
-            else:
-                # save state dict to cpu buffer
-                for k, v in bucket.items():
-                    cpu_buffer[k] = v.to("cpu")
-            del bucket
 
-        if not self.sync_weight_load_instant:
-            # load state dict after actor offload
-            if self.enable_offload:
-                self.reload_model()
-            self.hf_model.load_state_dict(cpu_buffer, strict=True)
-            del cpu_buffer
+        async def send_func(data: Any) -> None:
+            if not self._weight_sync_is_sender:
+                return
+            actor_world_size = self.placement.get_world_size("actor")
+            for actor_rank in range(actor_world_size):
+                await self.send(
+                    data,
+                    dst_group_name=self.actor_group_name,
+                    dst_rank=actor_rank,
+                    async_op=True,
+                    options=self._sync_weight_comm_options,
+                ).async_wait()
+
+        if not self.weight_syncer.receiver_initialized():
+            await self.weight_syncer.init_receiver(
+                state_dict=self.hf_model.state_dict(),
+                recv=recv_func,
+                send=send_func,
+            )
+
+        applied_version = await self.weight_syncer.apply(self.hf_model, recv_func)
+        self.version = applied_version
+        if self.finished_episodes is None:
+            self.finished_episodes = (
+                self.version * self.total_num_train_envs * self.rollout_epoch
+            )
+        if hasattr(self.hf_model, "set_global_step"):
+            self.hf_model.set_global_step(applied_version)
 
         gc.collect()
         self.torch_platform.empty_cache()
@@ -436,6 +440,7 @@ class MultiStepRolloutWorker(Worker):
             )
             self.send_rollout_result(output_channel, rollout_result, mode="train")
 
+    @Worker.timer("rollout/generate")
     async def generate(
         self,
         input_channel: Channel,
@@ -485,6 +490,7 @@ class MultiStepRolloutWorker(Worker):
                 eval_batch_size=self.eval_batch_size,
             )
 
+    @Worker.timer("rollout/recv_obs")
     async def recv_env_output(
         self, input_channel: Channel, mode: Literal["train", "eval"] = "train"
     ) -> dict[str, Any]:
@@ -585,6 +591,7 @@ class MultiStepRolloutWorker(Worker):
 
         return {"obs": merged_obs, "final_obs": merged_final_obs}
 
+    @Worker.timer("rollout/send_actions")
     def send_chunk_actions(
         self,
         output_channel: Channel,
@@ -658,6 +665,7 @@ class MultiStepRolloutWorker(Worker):
             for idx in range(len(sizes))
         ]
 
+    @Worker.timer("rollout/send_traj")
     def send_rollout_result(
         self,
         output_channel: Channel,
@@ -680,10 +688,5 @@ class MultiStepRolloutWorker(Worker):
             )
 
     def set_global_step(self, global_step: int):
-        self.version = global_step
-        if self.finished_episodes is None:
-            self.finished_episodes = (
-                self.version * self.total_num_train_envs * self.rollout_epoch
-            )
         if hasattr(self.hf_model, "set_global_step"):
             self.hf_model.set_global_step(global_step)

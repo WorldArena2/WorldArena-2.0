@@ -17,12 +17,10 @@ import importlib.util
 import logging
 import os
 from dataclasses import asdict
-from enum import Enum
-from typing import TYPE_CHECKING, Callable, Optional, Union
+from typing import TYPE_CHECKING, Callable, ClassVar, Optional, Union
 
 import torch
 import torch.nn.functional as F
-import yaml
 from omegaconf import OmegaConf, open_dict
 from omegaconf.dictconfig import DictConfig
 
@@ -41,49 +39,94 @@ if TYPE_CHECKING:
 logging.getLogger().setLevel(logging.INFO)
 
 
-class SupportedModel(Enum):
-    # Reasoning models
-    QWEN2_5 = ("qwen2.5", "reasoning")
-    QWEN2_5_VL = ("qwen2.5_vl", "reasoning")
-    QWEN3 = ("qwen3", "reasoning")
-    QWEN3_MOE = ("qwen3_moe", "reasoning")
+@dataclasses.dataclass(frozen=True)
+class SupportedModel:
+    value: str
 
-    # Embodied models
-    OPENVLA = ("openvla", "embodied")
-    OPENVLA_OFT = ("openvla_oft", "embodied")
-    OPENPI = ("openpi", "embodied")
-    STARVLA = ("starvla", "embodied")
-    MLP_POLICY = ("mlp_policy", "embodied")
-    GR00T = ("gr00t", "embodied")
-    DEXBOTIC_PI = ("dexbotic_pi", "embodied")
-    DREAMZERO = ("dreamzero", "embodied")
-    CNN_POLICY = ("cnn_policy", "embodied")
-    FLOW_POLICY = ("flow_policy", "embodied")
-    CMA_POLICY = ("cma", "embodied")
-    LINGBOTVLA = ("lingbotvla", "embodied")
-    RESNET_REWARD = ("resnet", "embodied")
-    ROBOTWIN_T5_CROSSATTN_REWARD = ("robotwin_t5_crossattn", "embodied")
+    models: ClassVar[dict[str, "SupportedModel"]] = {}
 
-    # Sft models
-    QWEN2_5_VL_SFT = ("qwen2.5_vl", "sft")
-    QWEN3_VL_SFT = ("qwen3_vl", "sft")
-    QWEN3_VL_MOE_SFT = ("qwen3_vl_moe", "sft")
+    @classmethod
+    def register(cls, value: str, force: bool = False) -> "SupportedModel":
+        if not value:
+            raise ValueError("model_type must be a non-empty string.")
+        if value in cls.models:
+            if not force:
+                raise ValueError(
+                    f"Model type `{value}` is already registered. "
+                    "Set force=True to override it."
+                )
+        else:
+            cls.models[value] = cls.__private_create__(value)
+        return cls.models[value]
 
-    def __new__(cls, value, category):
+    @classmethod
+    def get(cls, value: str) -> "SupportedModel":
+        if value not in cls.models:
+            supported_models = sorted(cls.models)
+            raise NotImplementedError(
+                f"Model Type: {value} not supported. Supported models: {supported_models}"
+            )
+        return cls.models[value]
+
+    def __new__(cls, value: str):
+        return cls.get(value)
+
+    @classmethod
+    def __private_create__(cls, value: str) -> "SupportedModel":
         obj = object.__new__(cls)
-        obj._value_ = value
-        obj.category = category
+        object.__setattr__(obj, "value", value)
         return obj
 
 
-def get_supported_model(model_type: str) -> SupportedModel:
-    try:
-        return SupportedModel(model_type)
-    except ValueError as err:
-        supported_models = [e.value for e in SupportedModel]
-        raise NotImplementedError(
-            f"Model Type: {model_type} not supported. Supported models: {supported_models}"
-        ) from err
+SupportedModel.QWEN2_5 = SupportedModel.register("qwen2.5", force=True)
+SupportedModel.QWEN2_5_VL = SupportedModel.register("qwen2.5_vl", force=True)
+SupportedModel.QWEN3 = SupportedModel.register("qwen3", force=True)
+SupportedModel.QWEN3_MOE = SupportedModel.register("qwen3_moe", force=True)
+SupportedModel.OPENVLA = SupportedModel.register("openvla", force=True)
+SupportedModel.OPENVLA_OFT = SupportedModel.register("openvla_oft", force=True)
+SupportedModel.OPENPI = SupportedModel.register("openpi", force=True)
+SupportedModel.STARVLA = SupportedModel.register("starvla", force=True)
+SupportedModel.MLP_POLICY = SupportedModel.register("mlp_policy", force=True)
+SupportedModel.GR00T = SupportedModel.register("gr00t", force=True)
+SupportedModel.DEXBOTIC_PI = SupportedModel.register("dexbotic_pi", force=True)
+SupportedModel.DEXBOTIC_DM0 = SupportedModel.register("dexbotic_dm0", force=True)
+SupportedModel.DREAMZERO = SupportedModel.register("dreamzero", force=True)
+SupportedModel.CNN_POLICY = SupportedModel.register("cnn_policy", force=True)
+SupportedModel.FLOW_POLICY = SupportedModel.register("flow_policy", force=True)
+SupportedModel.CMA_POLICY = SupportedModel.register("cma", force=True)
+SupportedModel.LINGBOTVLA = SupportedModel.register("lingbotvla", force=True)
+SupportedModel.ABOT_M0 = SupportedModel.register("abot_m0", force=True)
+SupportedModel.RESNET_REWARD = SupportedModel.register("resnet", force=True)
+SupportedModel.CFG_MODEL = SupportedModel.register("cfg_model", force=True)
+SupportedModel.VALUE_MODEL = SupportedModel.register("value_model", force=True)
+
+SupportedModel.QWEN2_5_VL_SFT = SupportedModel.register("qwen2.5_vl", force=True)
+SupportedModel.QWEN3_VL_SFT = SupportedModel.register("qwen3_vl", force=True)
+SupportedModel.QWEN3_VL_MOE_SFT = SupportedModel.register("qwen3_vl_moe", force=True)
+SupportedModel.GR00T_N1D6 = SupportedModel.register("gr00t_n1d6", force=True)
+
+EMBODIED_MODEL = set(
+    {
+        SupportedModel.OPENVLA,
+        SupportedModel.OPENVLA_OFT,
+        SupportedModel.OPENPI,
+        SupportedModel.STARVLA,
+        SupportedModel.MLP_POLICY,
+        SupportedModel.GR00T,
+        SupportedModel.DEXBOTIC_PI,
+        SupportedModel.DEXBOTIC_DM0,
+        SupportedModel.DREAMZERO,
+        SupportedModel.CNN_POLICY,
+        SupportedModel.FLOW_POLICY,
+        SupportedModel.CMA_POLICY,
+        SupportedModel.LINGBOTVLA,
+        SupportedModel.ABOT_M0,
+        SupportedModel.RESNET_REWARD,
+        SupportedModel.GR00T_N1D6,
+        SupportedModel.CFG_MODEL,
+        SupportedModel.VALUE_MODEL,
+    }
+)
 
 
 SUPPORTED_ROLLOUT_BACKENDS = ["sglang", "vllm"]
@@ -93,6 +136,7 @@ SUPPORTED_TASK_TYPE = [
     "reasoning_eval",
     "coding_online_rl",
     "sft",
+    "offline",
 ]
 SUPPORTED_TRAINING_BACKENDS = ["megatron", "fsdp"]
 __all__ = ["build_config"]
@@ -205,7 +249,7 @@ def activation_to_func(
 
 
 def validate_rollout_cfg(cfg, algorithm_cfg):
-    assert get_supported_model(cfg.model.model_type)
+    SupportedModel(cfg.model.model_type)  # To validate model_type is supported
 
     def validate_sglang_cfg(cfg):
         assert cfg is not None, (
@@ -256,7 +300,11 @@ def validate_model_cfg_by_hf_config(cfg, hf_model_path):
 
     hf_config = AutoConfig.from_pretrained(hf_model_path, trust_remote_code=True)
 
-    if "Qwen2ForCausalLM" in hf_config.architectures:
+    if (
+        "Qwen2ForCausalLM" in hf_config.architectures
+        or "Qwen2_5ForCausalLM" in hf_config.architectures
+        or "Qwen2_5_VLForConditionalGeneration" in hf_config.architectures
+    ):
         qkv_bias = True
     else:
         qkv_bias = getattr(hf_config, "attention_bias", False)
@@ -264,6 +312,8 @@ def validate_model_cfg_by_hf_config(cfg, hf_model_path):
     if (
         "Qwen3ForCausalLM" in hf_config.architectures
         or "Qwen3MoeForCausalLM" in hf_config.architectures
+        or "Qwen3VLForConditionalGeneration" in hf_config.architectures
+        or "Qwen3VLMoeForConditionalGeneration" in hf_config.architectures
     ):
         qk_layernorm = True
     else:
@@ -280,6 +330,11 @@ def validate_model_cfg_by_hf_config(cfg, hf_model_path):
             else:
                 # mrope
                 cfg.model.seq_len_interpolation_factor = None
+        model_type = getattr(cfg.model, "model_type", None)
+        if model_type == "qwen3_vl" or model_type == "qwen3_vl_moe":
+            # qwen3_vl and qwen3_vl_moe config.json set the model config in text_config
+            hf_config = hf_config.text_config
+
         cfg.model.padded_vocab_size = hf_config.vocab_size
         cfg.model.max_position_embeddings = hf_config.max_position_embeddings
         cfg.model.rotary_base = hf_config.rope_theta
@@ -473,6 +528,9 @@ def validate_megatron_cfg(cfg: DictConfig) -> DictConfig:
             "enable_gloo_process_groups", True
         )
 
+        #  megatron >= 0.15.0
+        cfg.megatron.skip_train = cfg.megatron.get("skip_train", False)
+
         # ddp config
         cfg.megatron.check_for_nan_in_loss_and_grad = cfg.megatron.get(
             "check_for_nan_in_loss_and_grad", False
@@ -629,7 +687,10 @@ def validate_megatron_cfg(cfg: DictConfig) -> DictConfig:
             f"grouped_gemm type only avail in [null, te]. get value ({cfg.model.moe_grouped_gemm})"
         )
 
-        if cfg.model.expert_tensor_parallel_size is not None:
+        if (
+            not getattr(cfg.megatron, "mbridge", False)
+            and cfg.model.expert_tensor_parallel_size is not None
+        ):
             assert (
                 cfg.model.expert_tensor_parallel_size
                 <= cfg.model.tensor_model_parallel_size
@@ -748,15 +809,26 @@ def validate_megatron_cfg(cfg: DictConfig) -> DictConfig:
 
 
 def validate_embodied_cfg(cfg):
-    assert get_supported_model(cfg.actor.model.model_type).category == "embodied", (
+    model_type = SupportedModel(cfg.actor.model.model_type)
+    assert model_type in EMBODIED_MODEL, (
         f"Model type: '{cfg.actor.model.model_type}' is not an embodied model. "
-        f"Supported embodied models: {[e.value for e in SupportedModel if e.category == 'embodied']}."
+        f"Supported embodied models: {sorted([x.value for x in EMBODIED_MODEL])}."
     )
+
+    if cfg.runner.get("use_training_pipeline", False):
+        assert not cfg.algorithm.get("normalize_advantages", True), (
+            "algorithm.normalize_advantages must be False when "
+            "runner.use_training_pipeline is True."
+        )
+        assert cfg.algorithm.adv_type == "gae", (
+            "algorithm.adv_type only supports 'gae' now"
+            "when runner.use_training_pipeline is True."
+        )
 
     # NOTE: Currently we only support actor_critic as PPO algorithm loss, and only support value_head as critic model.
     # This will be updated in the future to support more algorithms and critic models.
-    # Check that actor_critic loss requires value_head
-    if (
+    # Check that actor_critic loss requires value_head (training only; eval does not need critic)
+    if not cfg.runner.get("only_eval", False) and (
         cfg.algorithm.loss_type == "actor_critic"
         or cfg.algorithm.loss_type == "decoupled_actor_critic"
     ):
@@ -772,7 +844,7 @@ def validate_embodied_cfg(cfg):
     stage_num = cfg.rollout.pipeline_stage_num
     env_world_size = component_placement.get_world_size("env")
 
-    if cfg.runner.val_check_interval > 0 or cfg.runner.only_eval:
+    if cfg.runner.val_check_interval > 0 or cfg.runner.get("only_eval", False):
         assert cfg.env.eval.total_num_envs > 0, (
             "Total number of parallel environments for evaluation must be greater than 0"
         )
@@ -801,7 +873,7 @@ def validate_embodied_cfg(cfg):
             "env.eval.max_steps_per_rollout_epoch must be divisible by actor.model.num_action_chunks"
         )
 
-    if not cfg.runner.only_eval:
+    if not cfg.runner.get("only_eval", False):
         assert cfg.env.train.total_num_envs > 0, (
             "Total number of parallel environments for training must be greater than 0"
         )
@@ -835,6 +907,13 @@ def validate_embodied_cfg(cfg):
         weight_sync_interval = cfg.runner.get("weight_sync_interval", 1)
         assert weight_sync_interval > 0, "weight_sync_interval must be greater than 0"
         cfg.runner.weight_sync_interval = weight_sync_interval
+        # Overlap environment bootstrap (reset) with actor training to hide reset latency.
+        # This is enabled only when offload is disabled to avoid resource contention.
+        # Note: If EnvWorker and Actor share the same accelerator, this may increase GPU memory
+        # pressure during the overlap period.
+        cfg.runner.overlap_env_bootstrap = bool(
+            cfg.runner.get("overlap_env_bootstrap", False)
+        ) and not cfg.env.train.get("enable_offload", False)
         if (
             SupportedEnvType(cfg.env.train.env_type) == SupportedEnvType.MANISKILL
             or SupportedEnvType(cfg.env.eval.env_type) == SupportedEnvType.MANISKILL
@@ -866,24 +945,112 @@ def validate_embodied_cfg(cfg):
             SupportedEnvType(cfg.env.train.env_type) == SupportedEnvType.BEHAVIOR
             or SupportedEnvType(cfg.env.eval.env_type) == SupportedEnvType.BEHAVIOR
         ):
-            import omnigibson as og
-
             assert cfg.env.train.base_config_name == "r1pro_behavior", (
                 f"Only r1pro_behavior is supported for omnigibson, got {cfg.env.train.base_config_name}"
             )
-            # Load the pre-selected configuration and set the online_sampling flag
-            config_filename = os.path.join(
-                og.example_config_path, "r1pro_behavior.yaml"
-            )
-            omnigibson_cfg = yaml.load(
-                open(config_filename, "r"), Loader=yaml.FullLoader
-            )
-            omnigibson_cfg = OmegaConf.create(omnigibson_cfg)
-            with open_dict(omnigibson_cfg):
-                omnigibson_cfg.robots[0].obs_modalities = ["rgb", "depth", "proprio"]
-            cfg.env.train.omnigibson_cfg = omnigibson_cfg
-            cfg.env.eval.omnigibson_cfg = omnigibson_cfg
+    return cfg
 
+
+def validate_offline_cfg(cfg: DictConfig) -> DictConfig:
+    """Validation for offline tasks (e.g. IQL).
+
+    Requires explicit offline IQL runtime fields and validates their ranges.
+    """
+    actor_global = cfg.actor.get("global_batch_size", None)
+    actor_micro = cfg.actor.get("micro_batch_size", None)
+    runner_local_update_steps = cfg.runner.get("local_update_steps", None)
+    runner_max_steps = cfg.runner.get("max_steps", None)
+    runner_only_eval = cfg.runner.get("only_eval", None)
+    algorithm_gamma = cfg.algorithm.get("gamma", None)
+    actor_seed = cfg.actor.get("seed", None)
+    if actor_global is None:
+        raise AssertionError("offline training requires actor.global_batch_size")
+    if actor_micro is None:
+        raise AssertionError("offline training requires actor.micro_batch_size")
+    if runner_local_update_steps is None:
+        raise AssertionError("offline training requires runner.local_update_steps")
+    if runner_max_steps is None:
+        raise AssertionError("offline training requires runner.max_steps")
+    if runner_only_eval is None:
+        raise AssertionError("offline training requires runner.only_eval")
+    if algorithm_gamma is None:
+        raise AssertionError("offline training requires algorithm.gamma")
+    if actor_seed is None:
+        raise AssertionError("offline training requires actor.seed")
+
+    actor_global_int = int(actor_global)
+    actor_micro_int = int(actor_micro)
+    runner_local_update_steps_int = int(runner_local_update_steps)
+    runner_max_steps_int = int(runner_max_steps)
+    try:
+        float(algorithm_gamma)
+    except (TypeError, ValueError) as exc:
+        raise AssertionError(
+            f"algorithm.gamma must be numeric, got {algorithm_gamma!r}"
+        ) from exc
+    try:
+        int(actor_seed)
+    except (TypeError, ValueError) as exc:
+        raise AssertionError(
+            f"actor.seed must be int-castable, got {actor_seed!r}"
+        ) from exc
+
+    assert actor_global_int > 0, (
+        f"actor.global_batch_size must be > 0, got {actor_global_int}"
+    )
+    assert actor_micro_int > 0, (
+        f"actor.micro_batch_size must be > 0, got {actor_micro_int}"
+    )
+    assert runner_local_update_steps_int > 0, (
+        "runner.local_update_steps must be > 0 for offline training"
+    )
+    assert runner_max_steps_int >= 0, (
+        f"runner.max_steps must be >= 0, got {runner_max_steps_int}"
+    )
+    assert actor_global_int >= actor_micro_int, (
+        "actor.global_batch_size must be >= actor.micro_batch_size for offline training"
+    )
+
+    with open_dict(cfg):
+        cfg.runner.only_eval = bool(runner_only_eval)
+
+        # Offline RL only needs env.eval for evaluation interaction.
+        if cfg.env.get("train", None) is None:
+            cfg.env.train = OmegaConf.create(
+                OmegaConf.to_container(cfg.env.eval, resolve=True)
+            )
+
+    if cfg.runner.val_check_interval > 0 or cfg.runner.only_eval:
+        component_placement = HybridComponentPlacement(cfg, Cluster())
+        stage_num = cfg.rollout.pipeline_stage_num
+        env_world_size = component_placement.get_world_size("env")
+        assert cfg.env.eval.total_num_envs > 0, (
+            "Total number of parallel environments for evaluation must be greater than 0"
+        )
+        assert cfg.env.eval.total_num_envs % env_world_size == 0, (
+            "Total number of parallel environments for evaluation must be divisible by the number of environment processes"
+        )
+        assert cfg.env.eval.total_num_envs % env_world_size % stage_num == 0, (
+            "Total number of parallel environments for evaluation must be divisible by the number of environment processes and the number of pipeline stages"
+        )
+        assert cfg.env.eval.total_num_envs // env_world_size // stage_num > 0, (
+            "env.eval.total_num_envs // env_world_size // rollout.pipeline_stage_num must be greater than 0"
+        )
+        assert (
+            cfg.env.eval.total_num_envs
+            // env_world_size
+            // stage_num
+            % cfg.env.eval.group_size
+            == 0
+        ), (
+            "env.eval.total_num_envs // env_world_size // rollout.pipeline_stage_num must be divisible by the group size"
+        )
+        assert (
+            cfg.env.eval.max_steps_per_rollout_epoch % cfg.actor.model.num_action_chunks
+            == 0
+        ), (
+            "env.eval.max_steps_per_rollout_epoch must be divisible by actor.model.num_action_chunks"
+        )
     return cfg
 
 
@@ -908,6 +1075,18 @@ def validate_sft_cfg(cfg: DictConfig) -> DictConfig:
         else:
             # set the val_check_interval to -1 if there is no eval data or is not set
             cfg.runner.val_check_interval = cfg.runner.get("val_check_interval", -1)
+
+        model_type = cfg.actor.model.get("model_type", None)
+        if (
+            model_type is not None
+            and SupportedModel(model_type) == SupportedModel.DREAMZERO
+        ):
+            from rlinf.models.embodiment.dreamzero.dreamzero_config import (
+                validate_dreamzero_sft_model_cfg,
+            )
+
+            cfg.actor.model = validate_dreamzero_sft_model_cfg(cfg.actor.model)
+
     return cfg
 
 
@@ -966,9 +1145,9 @@ def validate_reasoning_eval_cfg(cfg: DictConfig) -> DictConfig:
 
 
 def validate_coding_online_rl_cfg(cfg: DictConfig) -> DictConfig:
-    assert (
-        get_supported_model(cfg.rollout.model.model_type) == SupportedModel.QWEN2_5
-    ), f"Model type {cfg.rollout.model.model_type} is not supported"
+    assert SupportedModel(cfg.rollout.model.model_type) == SupportedModel.QWEN2_5, (
+        f"Model type {cfg.rollout.model.model_type} is not supported"
+    )
 
     assert cfg.algorithm.recompute_logprobs or cfg.rollout.return_logprobs, (
         "One of `algorithm.recompute_logprobs` or `rollout.return_logprobs` must be True to compute `prev_logprobs`."
@@ -1031,9 +1210,22 @@ def validate_cfg(cfg: DictConfig) -> DictConfig:
             cfg.runner.per_worker_log_path = os.path.join(
                 cfg.runner.logger.log_path, "worker_logs"
             )
+        profiling_cfg = cfg.cluster.get("profiling", None)
+        if profiling_cfg is not None and bool(profiling_cfg.get("enabled", True)):
+            if not profiling_cfg.get("output_dir", None):
+                cfg.cluster.profiling.output_dir = os.path.abspath(
+                    os.path.join(
+                        cfg.runner.logger.log_path,
+                        cfg.runner.logger.experiment_name,
+                        "profiling",
+                    )
+                )
 
     # Init cluster
-    Cluster(cluster_cfg=cfg.cluster, distributed_log_dir=cfg.runner.per_worker_log_path)
+    Cluster(
+        cluster_cfg=cfg.cluster,
+        distributed_log_dir=cfg.runner.per_worker_log_path,
+    )
 
     assert cfg.runner.task_type in SUPPORTED_TASK_TYPE, (
         f"task_type must be one of {SUPPORTED_TASK_TYPE}"
@@ -1049,8 +1241,10 @@ def validate_cfg(cfg: DictConfig) -> DictConfig:
         return cfg
     elif cfg.runner.task_type == "sft":
         cfg = validate_sft_cfg(cfg)
+    elif cfg.runner.task_type == "offline":
+        cfg = validate_offline_cfg(cfg)
 
-    if cfg.runner.task_type != "sft":
+    if cfg.runner.task_type != "sft" and not cfg.runner.get("only_eval", False):
         if cfg.algorithm.adv_type in ("grpo", "grpo_dynamic", "reinpp_baseline"):
             assert cfg.algorithm.group_size > 1
 
@@ -1060,9 +1254,14 @@ def validate_cfg(cfg: DictConfig) -> DictConfig:
 
     if cfg.actor.training_backend == "megatron":
         cfg.actor = validate_megatron_cfg(cfg.actor)
-        cfg.actor = validate_model_cfg_by_hf_config(
-            cfg.actor, cfg.rollout.model.model_path
-        )
+        if cfg.runner.task_type == "sft":
+            cfg.actor = validate_model_cfg_by_hf_config(
+                cfg.actor, cfg.actor.model.model_path
+            )
+        else:
+            cfg.actor = validate_model_cfg_by_hf_config(
+                cfg.actor, cfg.rollout.model.model_path
+            )
         # TODO. Need actually pad padded_vocab_size.
         assert (
             cfg.actor.model.padded_vocab_size

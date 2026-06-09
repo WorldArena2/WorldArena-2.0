@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from omegaconf import DictConfig
 
-from rlinf.config import SupportedModel, get_supported_model
+from rlinf.config import SupportedModel
 from rlinf.data.embodied_io_struct import Trajectory
 from rlinf.data.replay_buffer import TrajectoryReplayBuffer
 from rlinf.models.embodiment.base_policy import ForwardType
@@ -44,7 +44,6 @@ class EmbodiedDAGGERFSDPPolicy(EmbodiedFSDPActor):
         if self.cfg.actor.get("enable_offload", False):
             self.offload_param_and_grad()
             self.offload_optimizer()
-        self._setup_rollout_weight_dst_ranks()
         if self.cfg.actor.get("compile_model", False):
             self.model = torch.compile(self.model, mode="default")
 
@@ -70,6 +69,7 @@ class EmbodiedDAGGERFSDPPolicy(EmbodiedFSDPActor):
             ),
         )
 
+    @Worker.timer("actor/recv_traj")
     async def recv_rollout_trajectories(self, input_channel: Channel) -> None:
         clear_memory(sync=False)
 
@@ -95,27 +95,18 @@ class EmbodiedDAGGERFSDPPolicy(EmbodiedFSDPActor):
         """Prepare model-specific DAgger training inputs."""
         return self.model.prepare_dagger_sft_batch(batch)
 
-    def _reduce_sft_loss(self, loss):
-        """Reduce model-specific SFT loss to a scalar."""
-        if not isinstance(loss, torch.Tensor):
-            loss = torch.as_tensor(loss, device=self.device)
-
-        if (
-            get_supported_model(self.cfg.actor.model.model_type)
-            == SupportedModel.OPENPI
-        ):
-            action_chunk = self.model.config.action_chunk
-            action_dim = self.model.config.action_env_dim
-            loss = loss[:, :action_chunk, :action_dim]
-
-        return loss.mean()
-
     @Worker.timer("forward_actor")
     def forward_actor(self, batch):
         """Run one supervised forward pass for DAgger."""
         data = self._prepare_sft_batch(batch)
-        actor_loss = self.model(forward_type=ForwardType.SFT, data=data)
-        return self._reduce_sft_loss(actor_loss)
+        use_action_chunk_loss = (
+            SupportedModel(self.cfg.actor.model.model_type) == SupportedModel.OPENPI
+        )
+        return self.model(
+            forward_type=ForwardType.SFT,
+            data=data,
+            use_action_chunk_loss=use_action_chunk_loss,
+        )
 
     @Worker.timer("update_one_epoch")
     def update_one_epoch(self):
@@ -228,6 +219,7 @@ class EmbodiedDAGGERFSDPPolicy(EmbodiedFSDPActor):
         torch.cuda.empty_cache()
         return self.process_train_metrics(metrics)
 
+    @Worker.timer("actor/compute_adv")
     def compute_advantages_and_returns(self):
         """Skip advantage computation for supervised DAgger updates."""
         return {}

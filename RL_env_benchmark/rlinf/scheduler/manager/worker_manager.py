@@ -249,6 +249,15 @@ class WorkerNode:
         # Maintain sorted order of child nodes based on their rank
         bisect.insort(self._nodes, child_node, key=lambda x: x._worker_address.rank)
 
+    def upsert_child(self, rank: int, worker_info: WorkerInfo):
+        """Add or update a child worker node."""
+        child_address = self._worker_address.get_child_address(rank)
+        for child in self._nodes:
+            if child._worker_address == child_address:
+                child._worker_info = worker_info
+                return
+        self.add_child(rank, worker_info)
+
     def __str__(self):
         """Produce the string representation of the worker node tree."""
         tree = ""
@@ -290,7 +299,7 @@ class WorkerManager(Manager):
             for root in self._root_workers:
                 node = WorkerNode.find_node(root, parent_address)
                 if node is not None:
-                    node.add_child(rank, worker_info)
+                    node.upsert_child(rank, worker_info)
                     return
 
             # Create a new root node if the parent is not found
@@ -298,7 +307,7 @@ class WorkerManager(Manager):
             assert len(root._nodes) == 0, (
                 f"Root node {root._worker_address.get_name()} already has children."
             )
-            root.add_child(rank, worker_info)
+            root.upsert_child(rank, worker_info)
             self._root_workers.append(root)
 
     def get_worker_info(self, worker_address: WorkerAddress) -> WorkerInfo:

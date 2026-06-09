@@ -7,22 +7,19 @@ total_num_envs: null
 auto_reset: False
 ignore_terminations: False
 max_steps_per_rollout_epoch: 240
-max_episode_steps: 240  # max episode steps for truncation
+max_episode_steps: 240
 
 use_rel_reward: True
 reward_coef: 1.0
 
-# RLinf RobotWinEnv specific settings
-reset_gripper_open: False  # RobotWin使用绝对位置控制，不需要特殊处理夹爪
+reset_gripper_open: False
 is_eval: False
 
 seed: 0
 group_size: 1
 use_fixed_reset_state_ids: True
 use_ordered_reset_state_ids: False
-
-# Indicate the reset state id (related to the task_id and trial_id) want to be specified.
-specific_reset_id: null  # can be a number or null.
+specific_reset_id: null
 
 video_cfg:
   save_video: True
@@ -31,74 +28,30 @@ video_cfg:
 
 enable_offload: False
 
-###  ------------------Wan params define here ------------------
-
 wan_wm_hf_ckpt_path: null
 
-# Wan模型路径配置
 VAE_path: ${env.train.wan_wm_hf_ckpt_path}/Wan2.2_VAE.pth
-model_path: ${env.train.wan_wm_hf_ckpt_path}/model-00001.safetensors
-
-# 数据集路径配置
+model_path: ${env.train.wan_wm_hf_ckpt_path}/dit_model.safetensors
 initial_image_path: ${env.train.wan_wm_hf_ckpt_path}/dataset/
 
-# enable KIR Trick (KeyFrame-Init Rollout)
 enable_kir: True
 
-# Wan视频生成参数 (与LIBERO保持一致)
-chunk: 8                       # 应该与VLA的action_chunk相同（pi05需配置action_chunk=8）
-condition_frame_length: 5      # 世界模型的条件帧长度
-image_size: [256, 256]         # 世界模型输出图像尺寸
-num_frames: 13                 # 总帧数 = condition_frame_length + chunk = 5 + 8
+num_inference_steps: 5
+chunk: 8
+condition_frame_length: 5
+image_size: [256, 256]
+num_frames: 13
 
-# RobotWin特定配置
-action_dim: 14                 # RobotWin使用14维绝对action
-action_key: abs_action         # 数据集中的action字段名
-print_chunk_rewards: False      # 调试用：命令行打印每个 chunk 每个 step 的 reward（与 OpenSora 一致）
+action_dim: 14
+action_key: abs_action
+print_chunk_rewards: False
 
-# Reward模型配置
 reward_model:
-  # 可选:
-  # 1) RoboTwinT5CrossAttn           (原有cross-attn reward)
-  # 2) QwenVLMProgressRewardModel    (VLM进度/置信度 reward)
-  # 3) LPIPSLastFrameRewardModel     (当前生成帧与对应GT轨迹最后一帧的LPIPS相似度 reward)
+  type: RoboTwinT5CrossAttn
+  from_pretrained: ${oc.env:ROBOTWIN_REWARD_MODEL_PATH,/path/to/robotwin_reward_model.pth}
+  t5_model_name: ${oc.env:T5_MODEL_PATH,/path/to/t5-base}
 
-  # ---- RoboTwinT5CrossAttn 配置 (type=RoboTwinT5CrossAttn 时生效) ----
-  type: RoboTwinT5CrossAttn    # RobotWin T5 Cross-Attention Reward模型
-  from_pretrained: /your/path//RLinf/logs/robotwin_reward_model_adjust_bottle/robotwin_reward_training/checkpoints/global_step_660/actor/model_state_dict/resnet_rm.pth
-  t5_model_name: /your/path//RLinf/pretrained_models/t5-base
-
-  # ---- QwenVLMProgressRewardModel 配置 (type=QwenVLMProgressRewardModel 时生效) ----
-  # local_hf: 进程内加载HF模型；
-  # openai_api/vllm_service/sglang_service: 请求外部OpenAI兼容服务
-  # type: QwenVLMProgressRewardModel
-  # inference_backend: sglang_service
-
-  # # local_hf 需要 model_path；openai_api 模式可忽略
-  # model_path: "/your/path//RLinf/Qwen3.5-9B"
-
-  # # 服务模式需要：服务地址 + 服务模型名
-  # # 示例1(vLLM):
-  # # vllm serve /your/path//RLinf/Qwen3.5-9B --served-model-name Qwen3.5-9B --host 0.0.0.0 --port 8000
-  # # 示例2(SGLang):
-  # # python -m sglang.launch_server --model-path /your/path//RLinf/Qwen3.5-9B --served-model-name Qwen3.5-9B --host 0.0.0.0 --port 8000
-  # openai_api_base: "http://127.0.0.1:8000/v1"
-  # openai_api_key: "EMPTY"
-  # service_model_name: "Qwen3.5-9B"
-  # request_timeout: 30.0
-  # max_retries: 2
-
-  # dtype: bfloat16
-  # max_new_tokens: 64
-  # temperature: 0.0
-  # response_key: score
-  # default_score: 0.0
-  # force_json_response: True
-  # # 命令行打印每条样本的 VLM 原始回复（与 chunk 内 step 对应需设 log_chunk_size=chunk）
-  # print_vlm_response: True
-  # log_chunk_size: 8
-
-  # ---- LPIPSLastFrameRewardModel 配置 (type=LPIPSLastFrameRewardModel 时生效) ----
+  # Alternative:
   # type: LPIPSLastFrameRewardModel
-  # lpips_net: vgg              # 可选: alex / vgg / squeeze
-  # reward_transform: one_minus # one_minus / negative / raw
+  # lpips_net: vgg
+  # reward_transform: one_minus

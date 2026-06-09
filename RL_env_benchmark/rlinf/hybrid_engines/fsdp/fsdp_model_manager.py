@@ -25,7 +25,7 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForVision2Seq
 
-from rlinf.config import SupportedModel, get_supported_model, torch_dtype_from_precision
+from rlinf.config import SupportedModel, torch_dtype_from_precision
 from rlinf.data.tokenizers import hf_tokenizer
 from rlinf.hybrid_engines.fsdp import (
     FSDP,
@@ -38,7 +38,10 @@ from rlinf.hybrid_engines.fsdp.utils import (
 )
 from rlinf.scheduler import Worker
 from rlinf.utils.logging import get_logger
-from rlinf.utils.utils import warmup_optimizer_state
+from rlinf.utils.utils import (
+    collect_param_names_need_sync,
+    warmup_optimizer_state,
+)
 
 warnings.filterwarnings(
     "ignore",
@@ -75,9 +78,7 @@ class FSDPModelManager:
         if cfg.get("tokenizer", {}).get("tokenizer_model", None) is not None:
             self.tokenizer = hf_tokenizer(cfg.tokenizer.tokenizer_model)
 
-        self._device_mesh = create_device_mesh(
-            world_size, self._cfg.fsdp_config.get("fsdp_size", -1)
-        )
+        self._device_mesh = create_device_mesh(world_size)
         self._dp_group = (
             self._device_mesh["ddp"].get_group()
             if "ddp" in self._device_mesh.mesh_dim_names
@@ -97,6 +98,8 @@ class FSDPModelManager:
 
         # Bucket capacity for weight sync (in bytes), default 128MB
         self.bucket_capacity = cfg.get("sync_bucket_capacity", 128 * 1024 * 1024)
+
+        self.param_names_need_sync: list[str] = None
 
     def _create_amp_context(self) -> ContextManager:
         """
@@ -225,9 +228,7 @@ class FSDPModelManager:
                 for model_type, apply_fn in _liger_func_by_model.items()
             }
 
-            model_type = get_supported_model(
-                self._cfg.model.get("model_type", "").lower()
-            )
+            model_type = SupportedModel(self._cfg.model.get("model_type", "").lower())
             if model_type in MODEL_LIGER_KERNEL_APPLY_FUNC:
                 apply_func, apply_kwargs = MODEL_LIGER_KERNEL_APPLY_FUNC[model_type]
                 apply_func(
@@ -253,10 +254,27 @@ class FSDPModelManager:
 
         # Enable gradient checkpointing if configured
         if self._cfg.fsdp_config.get("gradient_checkpointing", False):
-            self._logger.info("[FSDP] Enabling gradient checkpointing")
-            module.gradient_checkpointing_enable()
+            use_reentrant = self._cfg.fsdp_config.get(
+                "gradient_checkpointing_use_reentrant", True
+            )
+            self._logger.info(
+                f"[FSDP] Enabling gradient checkpointing with use_reentrant={use_reentrant}"
+            )
+            if use_reentrant:
+                # use_reentrant=True is the default for HuggingFace models.
+                # We pass no arguments to stay compatible with openpi's
+                # PI0Pytorch.gradient_checkpointing_enable, which takes none.
+                module.gradient_checkpointing_enable()
+            else:
+                module.gradient_checkpointing_enable(
+                    gradient_checkpointing_kwargs={"use_reentrant": use_reentrant}
+                )
         else:
             self._logger.info("[FSDP] Gradient checkpointing is disabled")
+
+        # here record the original trainable parameters' names before FSDP wrapping
+        # persist buffers' names are also recorded, which will be used for weight syncing.
+        self.param_names_need_sync = collect_param_names_need_sync(module)
 
         # build model, optimizer, lr_scheduler, grad_scaler
         self.model = self._strategy.wrap_model(
@@ -307,6 +325,13 @@ class FSDPModelManager:
         Args:
             load_path: the directory to load checkpoint.
         """
+        if self.is_weight_offloaded:
+            self.load_param_and_grad(self.device)
+            self.is_weight_offloaded = False
+        if self.is_optimizer_offloaded:
+            self.load_optimizer(self.device)
+            self.is_optimizer_offloaded = False
+
         self._strategy.load_checkpoint(
             self.model, self.optimizer, self.lr_scheduler, load_path
         )
@@ -319,19 +344,28 @@ class FSDPModelManager:
         Args:
             save_path: the directory to save checkpoint.
         """
-        if self.is_weight_offloaded:
+        restore_weight_offload = self.is_weight_offloaded
+        restore_optimizer_offload = self.is_optimizer_offloaded
+
+        if restore_weight_offload:
             self.load_param_and_grad(self.device)
-            self.is_weight_offloaded = False
-        if self.is_optimizer_offloaded:
+        if restore_optimizer_offload:
             self.load_optimizer(self.device)
-            self.is_optimizer_offloaded = False
 
         self._strategy.save_checkpoint(
             self.model,
             self.optimizer,
             self.lr_scheduler,
             save_path,
+            save_full_model_weights=self._cfg.fsdp_config.get(
+                "save_full_model_weights", True
+            ),
         )
+
+        if restore_weight_offload:
+            self.offload_param_and_grad()
+        if restore_optimizer_offload:
+            self.offload_optimizer()
 
     def offload_param_and_grad(self, offload_grad: bool = False) -> None:
         """
@@ -574,7 +608,7 @@ class FSDPModelManager:
 
         for key, params in filtered_params_dict.items():
             assert len(params) > 0, (
-                f"optimer {key=} is not match any params, with {param_filters(key)=}"
+                f"optimer {key=} is not match any params, with {param_filters[key]=}"
             )
         for key, params in filtered_params_dict.items():
             optimizers.append(

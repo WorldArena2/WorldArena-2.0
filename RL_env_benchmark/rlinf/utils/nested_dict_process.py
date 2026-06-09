@@ -14,7 +14,13 @@
 
 from typing import Any
 
+import numpy as np
 import torch
+
+# Keys that we have already warned about in concat_batch, so each missing key
+# only produces a single warning per process (avoid log spam in the replay /
+# demo batch pipeline).
+_CONCAT_BATCH_WARNED_KEYS: set[str] = set()
 
 
 def update_nested_cfg(base_cfg, override_cfg):
@@ -45,6 +51,22 @@ def copy_dict_tensor(next_extracted_obs: dict):
     return ret
 
 
+def clone_nested_to_cpu(value: Any):
+    if value is None:
+        return None
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().clone()
+    if isinstance(value, np.ndarray):
+        return value.copy()
+    if isinstance(value, dict):
+        return {key: clone_nested_to_cpu(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [clone_nested_to_cpu(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(clone_nested_to_cpu(item) for item in value)
+    return value
+
+
 def put_tensor_device(data_dict, device):
     if data_dict is None:
         return None
@@ -63,7 +85,9 @@ def split_dict_to_chunk(data: dict, split_size, dim=0):
     splited_list = [{} for _ in range(split_size)]
     for key, value in data.items():
         if isinstance(value, torch.Tensor):
-            split_vs = torch.chunk(value, split_size, dim=dim)
+            split_vs = [
+                chunk.contiguous() for chunk in torch.chunk(value, split_size, dim=dim)
+            ]
         elif value is None:
             split_vs = [None for _ in range(split_size)]
         elif isinstance(value, dict):
@@ -88,6 +112,23 @@ def concat_batch(data1, data2):
                 continue
             batch[key] = torch.cat([data1[key], data2[key]], dim=0)
         elif isinstance(value, dict):
+            # NOTE: added this for dealing with different keys in demo data.
+            if key not in data2:
+                if key not in _CONCAT_BATCH_WARNED_KEYS:
+                    _CONCAT_BATCH_WARNED_KEYS.add(key)
+                    # Lazy import to avoid pulling rlinf.scheduler.worker (and
+                    # its heavy deps) at module import time. This only runs
+                    # once per missing key, inside a worker where that import
+                    # is essentially free.
+                    from rlinf.utils.logging import get_logger
+
+                    get_logger().warning(
+                        "concat_batch: key '%s' not found in data2 (value type: %s), "
+                        "skipping. This warning is only emitted once per key.",
+                        key,
+                        type(value).__name__,
+                    )
+                continue
             batch[key] = concat_batch(data1[key], data2[key])
     return batch
 
@@ -121,14 +162,23 @@ def cat_list_of_dict_tensor(list_of_dict: list, dim=0):
     ret = {}
     for key in keys:
         _v0 = list_of_dict[0][key]
+        if _v0 is None:
+            continue
+
+        v_list = [d[key] for d in list_of_dict]
+
         if isinstance(_v0, torch.Tensor):
-            v_list = [d[key] for d in list_of_dict]
             ret[key] = torch.cat(v_list, dim=dim)
+        elif isinstance(_v0, np.ndarray):
+            ret[key] = np.concatenate([v for v in v_list if v is not None], axis=dim)
+        elif isinstance(_v0, list):
+            assert dim == 0, f"{key=} is list, dim !=0 is not supported!"
+            ret[key] = [item for sub in v_list if sub is not None for item in sub]
         elif isinstance(_v0, dict):
-            v_list = [d[key] for d in list_of_dict]
-            ret[key] = cat_list_of_dict_tensor(v_list)
+            ret[key] = cat_list_of_dict_tensor(v_list, dim=dim)
         else:
             raise ValueError(f"{key=}, {type(_v0)} is not supported!")
+
     return ret
 
 

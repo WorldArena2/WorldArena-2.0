@@ -19,6 +19,8 @@ import yaml
 from omegaconf import DictConfig, ListConfig
 
 from ..hardware import HardwareConfig, NodeHardwareConfig
+from ..hardware.accelerators.accelerator import AcceleratorManager, ProfileConfig
+from ..hardware.accelerators.nvidia_gpu import NsightConfig  # noqa: F401 – re-exported
 from .utils import dataclass_arg_check, parse_rank_config
 
 
@@ -170,6 +172,14 @@ class ClusterConfig:
 
     cluster:
       num_nodes: 18
+      nsight:
+        enabled: true
+        worker_groups: [ActorGroup, RolloutGroup]
+        options:
+          t: cuda,cudnn,cublas,nvtx
+          sample: none
+          capture-range: nvtx
+          capture-range-end: stop
       component_placement:
         actor:
           node_group: a800
@@ -253,6 +263,14 @@ class ClusterConfig:
         When using `node_group` in the component_placement, the specified hardware ranks are thus (1) `hardware.type` hardware if it is specified in the node group; (2) automatically detected accelerator hardware if it exists; (3) node itself as hardware resource if no accelerator hardware is found.
         When using the reserved `node` node_group in the component_placement, it is a group with all nodes but no hardware. And so it can be used to perform hardware-agnostic placement of processes on specific nodes.
 
+        6. profiling (optional): A `ProfileConfig` (or backend-specific subclass) describing how to wrap matching worker groups with a profiler.
+
+            - `backend` selects the profiling backend (e.g. ``"nsight"`` for Nsight Systems). Required when `profiling` is specified.
+            - `enabled` controls whether RLinf wraps matching workers with the profiler command.
+            - `worker_groups` matches worker group names such as `cfg.actor.group_name`.
+            - `steps` lists training step indices to gate profiling around.
+            - Backend-specific options (e.g. ``options``, ``flags`` for Nsight) are passed through to the selected backend.
+
         **Multi-node-group placement**: A worker group can be placed across multiple node groups with heterogeneous hardware types by specifying multiple node group labels. For example:
 
         .. code-block:: yaml
@@ -273,6 +291,9 @@ class ClusterConfig:
 
     node_groups: Optional[list[NodeGroupConfig]] = None
     """List of node group configurations in the cluster."""
+
+    profiling: Optional[ProfileConfig] = None
+    """Optional profiling configuration for worker processes."""
 
     @staticmethod
     def from_dict_cfg(cfg_dict: DictConfig) -> "ClusterConfig":
@@ -356,6 +377,30 @@ class ClusterConfig:
 
     def __post_init__(self):
         """Post-initialization to convert nodes dicts to their respective dataclass instances."""
+        if self.profiling is not None:
+            assert hasattr(self.profiling, "keys"), (
+                "cluster.profiling must be a dictionary. "
+                f"But got {type(self.profiling)}: {self.profiling}"
+            )
+            backend = str(self.profiling.get("backend", ""))
+            if not backend:
+                raise ValueError(
+                    "cluster.profiling.backend must be specified "
+                    f"(known backends: {sorted(AcceleratorManager.profile_backend_register.keys())})"
+                )
+            if backend not in AcceleratorManager.profile_backend_register:
+                raise ValueError(
+                    f"Unknown profiling backend '{backend}'. "
+                    f"Known backends: {sorted(AcceleratorManager.profile_backend_register.keys())}"
+                )
+            config_cls = AcceleratorManager.profile_backend_register[backend]
+            dataclass_arg_check(
+                config_cls,
+                self.profiling,
+                error_suffix="in cluster profiling yaml config",
+            )
+            self.profiling = config_cls(**self.profiling)
+
         if self.node_groups is not None:
             # Arg check
             for node_group in self.node_groups:

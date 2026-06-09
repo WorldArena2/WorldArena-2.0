@@ -18,21 +18,18 @@ cluster:
 runner:
   task_type: sft
   logger:
-    log_path: "/manifold-obs/tangyinzhou/RLinf/logs"
+    log_path: "../results"
     project_name: rlinf
     experiment_name: "test_openpi"
     logger_backends: ["tensorboard"] # wandb, swanlab
 
-  max_epochs: 1000
-  max_steps: -1
+  max_epochs: -1
+  max_steps: 1000
   val_check_interval: -1
   save_interval: 10
 
 data:
   train_data_paths: "/path/to/custom-data"
-
-algorithm:
-  adv_type: gae
 
 actor:
   group_name: "ActorGroup"
@@ -53,7 +50,6 @@ actor:
 
   optim:
     lr: 7.91e-6
-    value_lr: 1.55e-4
     adam_beta1: 0.9
     adam_beta2: 0.95
     adam_eps: 1.0e-08
@@ -70,9 +66,3 @@ actor:
       param_dtype: ${actor.model.precision}
       reduce_dtype: ${actor.model.precision}
       buffer_dtype: ${actor.model.precision}
-
-reward:
-  use_reward_model: False
-
-critic:
-  use_critic_model: False
