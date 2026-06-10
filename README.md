@@ -45,7 +45,7 @@ Under a unified evaluation protocol, WorldArena 2.0 systematically measures perc
 
 
 
-## 🎬 Visuotactile World Model Evaluation
+## ✋ Visuotactile World Model Evaluation
 <div align="center">
 
 <img src="assets/vtwm_pipeline.png" width="85%">
@@ -54,7 +54,7 @@ Under a unified evaluation protocol, WorldArena 2.0 systematically measures perc
 
 Please refer to [visual-tactile](https://github.com/WorldArena2/WorldArena-2.0/blob/main/visual-tactile_world_model_pipeline/README.md) for implementation.
 
-## 🤖 World Model Evaluation as RL Environments
+## 🌍 World Model Evaluation as RL Environments
 
 <div align="center">
 
