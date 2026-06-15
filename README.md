@@ -8,7 +8,7 @@
 </a>
 
 
-<a href="https://huggingface.co/spaces/WorldArena/WorldArena">
+<a href="https://huggingface.co/spaces/WorldArena/WorldArena2.0">
   <img src="https://img.shields.io/badge/Leaderboard-HuggingFace-ffcc00?style=for-the-badge&logo=huggingface&logoColor=ffcc00">
 </a>
 
