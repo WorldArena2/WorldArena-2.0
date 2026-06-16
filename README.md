@@ -62,7 +62,7 @@ Please refer to [visual-tactile](https://github.com/WorldArena2/WorldArena-2.0/b
 
 </div>
 
-Please refer to [RL_env](https://github.com/WorldArena2/WorldArena-2.0/blob/main/visual-tactile_world_model_pipeline/README.md) for implementation.
+Please refer to [RL_env](https://github.com/WorldArena2/WorldArena-2.0/blob/main/RL_env_benchmark/README.md) for implementation.
 
 ## 🤖 Cross-Embodiment Sim-to-Real Evaluation
 
