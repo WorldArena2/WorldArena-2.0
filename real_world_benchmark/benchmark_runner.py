@@ -36,7 +36,7 @@ except Exception:  # pragma: no cover - optional for offline smoke tests
     R = None  # type: ignore[assignment]
 
 try:
-    from openpi.training.agilex_dataset_align_zx import AgileXDataset
+    from openpi.training.agilex_dataset_align import AgileXDataset
 except Exception:  # pragma: no cover - optional for training-data offline mode
     AgileXDataset = None  # type: ignore[assignment]
 
@@ -266,7 +266,7 @@ def validate_output(out: Dict[str, Any]) -> np.ndarray:
 
 
 def _build_server(args: argparse.Namespace):
-    from manifold_msg.api import http_protocol
+    from agilex_msg.api import http_protocol
 
     server = http_protocol.Server(host=args.host, port=args.port, node_name=args.node_name)
     if args.env == 'wma':
