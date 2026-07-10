@@ -1,5 +1,7 @@
 # Track 3: Real-Robot Manipulation
+**[中文文档](https://github.com/WorldArena2/WorldArena-2.0/edit/main/assets/track3_description_cn.md)**
 
+**[English Document](https://github.com/WorldArena2/WorldArena-2.0/edit/main/assets/track3_description.md)**
 ## Overview
 
 Track 3 is the **real-robot task track** of the WorldArena benchmark. Participating teams deploy their policies on a real AgileX dual-arm robot equipped with head/wrist cameras and optional Xense tactile sensors. Tasks are evaluated by the **success rate** of completing the target manipulation in real-world execution.
