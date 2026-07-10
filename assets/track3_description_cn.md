@@ -1,5 +1,6 @@
 # Track 3：真机操作任务赛道
-
+**[中文文档](https://github.com/WorldArena2/WorldArena-2.0/edit/main/assets/track3_description_cn.md)**
+**[English Document](https://github.com/WorldArena2/WorldArena-2.0/edit/main/assets/track3_description.md)**
 ## 概述
 
 Track 3 是 WorldArena  benchmark 的**真机操作任务赛道**。参赛队伍需在真实的 AgileX 双臂机器人上部署自己的策略。该机器人配备头部/腕部相机，以及可选的 Xense 触觉传感器。任务通过**真机执行成功率**进行评判。
