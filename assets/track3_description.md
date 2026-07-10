@@ -77,4 +77,4 @@ We rate each task on a scale of **1 (easiest) to 10 (hardest)** based on the req
 - Teams may submit policies for any subset of tasks.
 - We encourage WAMs to compete in **both vision-only and vision-tactile categories**, as the latter tests contact-aware world modeling.
 - Policies should be robust to real-world sensory noise, latency, and partial observability.
-- See `policy_guide.md` in this folder for the policy Worker interface and deployment instructions.
+- See [policy_guide.md](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/policy_guide.md) in this folder for the policy Worker interface and deployment instructions.
