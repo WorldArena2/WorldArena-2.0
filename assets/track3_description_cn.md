@@ -75,4 +75,4 @@ Track 3 是 WorldArena  benchmark 的**真机操作任务赛道**。参赛队伍
 ## 参赛建议
 
 - 我们鼓励 WAM 同时参加**纯视觉类别和视觉-触觉类别**，因为后者测试的是具备接触感知能力的世界模型。
-- 接口与部署说明请参见同文件夹下的[policy_guide.md](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/policy_guide.md)。
+- 接口与部署说明请参见同文件夹下的[policy_guide_cn.md](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/policy_guide_cn.md)。
