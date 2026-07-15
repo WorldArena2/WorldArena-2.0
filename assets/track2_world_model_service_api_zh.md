@@ -1,8 +1,5 @@
 # WorldArena 2.0 Track 2：候选世界模型服务 API
 
-> API 版本：1.0  
-> Benchmark 定义见
-> [WorldArena 2.0 Track 2 世界模型数据引擎赛道说明](benchmark_description_zh.md)。
 
 ## 1. 适用范围
 
