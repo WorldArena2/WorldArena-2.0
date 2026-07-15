@@ -1,8 +1,5 @@
 # WorldArena 2.0 Track 2: Candidate World Model Service API
 
-> API version: 1.0  
-> For the benchmark definition, see [WorldArena 2.0 Track 2: World Model Data Engine Track](track2_benchmark_description_en.md).
-
 ## 1. Scope
 
 This protocol is used by the official evaluator to query action-conditioned world models submitted by participants. The service receives a visual history and a sequence of future actions, and returns future RGB frames aligned step by step with those actions. The protocol is independent of any particular model architecture, training framework, or deployment method.
