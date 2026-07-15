@@ -1,8 +1,8 @@
 # WorldArena 2.0 Track 2：世界模型RL环境赛道
 
-**[中文文档](https://github.com/WorldArena2/WorldArena-2.0/edit/main/assets/track2_benchmark_description_zh.md)**
+**[中文文档](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_benchmark_description_zh.md)**
 
-**[English Document](https://github.com/WorldArena2/WorldArena-2.0/edit/main/assets/track2_benchmark_description_en.md)**
+**[English Document](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_benchmark_description_en.md)**
 
 ## 1. 赛道目标
 
@@ -174,5 +174,5 @@ profile；公开示例仅用于接口联调，不代表保留评测分布。
 
 ## 10. 相关文档
 
-- [候选世界模型服务 API](https://github.com/WorldArena2/WorldArena-2.0/edit/main/assets/world_model_service_api_zh.md)
+- [候选世界模型服务 API](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/world_model_service_api_zh.md)
 
