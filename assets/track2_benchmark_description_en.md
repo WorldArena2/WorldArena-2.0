@@ -1,11 +1,12 @@
-# WorldArena 2.0 Track 2: World Model Data Engine Track
+# WorldArena 2.0 Track 2: World Model as RL Environment 
 
-> Document version: 1.0  
-> For the service integration protocol, see the [Candidate World Model Service API](track2_world_model_service_api_en.md).
+**[中文文档](https://github.com/WorldArena2/WorldArena-2.0/edit/main/assets/track2_benchmark_description_zh.md)**
+
+**[English Document](https://github.com/WorldArena2/WorldArena-2.0/edit/main/assets/track2_benchmark_description_en.md)**
 
 ## 1. Track Objective
 
-Track 2 evaluates the practical value of an action-conditioned world model (WM) as a data engine for robot model-based reinforcement learning (MBRL).
+Track 2 evaluates the practical value of an action-conditioned world model (WM) as an environment for robot model-based reinforcement learning (MBRL).
 
 Participants submit neither a robot policy nor a reward model. Instead, they submit a world-model inference service that can be called by the official evaluator. Given a visual history, optional state and language conditions, and a sequence of future actions, the service shall generate a future visual sequence aligned step by step with those actions. The organizer uses the generated results for policy rollout, reward estimation, and policy optimization, and then evaluates the optimized policy in an independent held-out environment.
 
@@ -150,4 +151,4 @@ The evaluator may retry retryable failures a limited number of times. Persistent
 
 ## 10. Related Documents
 
-- [Candidate World Model Service API](track2_world_model_service_api_en.md)
+- [Candidate World Model Service API](https://github.com/WorldArena2/WorldArena-2.0/edit/main/assets/track2_world_model_service_api_en.md)
