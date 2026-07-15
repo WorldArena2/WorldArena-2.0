@@ -174,5 +174,5 @@ profile；公开示例仅用于接口联调，不代表保留评测分布。
 
 ## 10. 相关文档
 
-- [候选世界模型服务 API](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/world_model_service_api_zh.md)
+- [候选世界模型服务 API](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_world_model_service_api_zh.md)
 
