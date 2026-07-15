@@ -1,4 +1,4 @@
-# WorldArena 2.0 Track 2：世界模型数据引擎赛道
+# WorldArena 2.0 Track 2：世界模型RL环境赛道
 
 > 文档版本：1.0  
 > 服务接入协议见[候选世界模型服务 API](world_model_service_api_zh.md)。
@@ -6,7 +6,7 @@
 ## 1. 赛道目标
 
 Track 2 评估动作条件世界模型（World Model，WM）作为机器人
-Model-Based Reinforcement Learning（MBRL）数据引擎的实际价值。
+Model-Based Reinforcement Learning（MBRL）环境的实际价值。
 
 参赛选手提交的不是机器人策略或奖励模型，而是一个可被官方评测端调用的世界
 模型推理服务。给定视觉历史、可选状态/语言条件和未来动作序列，服务应生成与
