@@ -151,4 +151,4 @@ The evaluator may retry retryable failures a limited number of times. Persistent
 
 ## 10. Related Documents
 
-- [Candidate World Model Service API](https://github.com/WorldArena2/WorldArena-2.0/edit/main/assets/track2_world_model_service_api_en.md)
+- [Candidate World Model Service API](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_world_model_service_api_en.md)
