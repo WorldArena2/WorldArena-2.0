@@ -1,8 +1,8 @@
 # WorldArena 2.0 Track 2: World Model as RL Environment 
 
-**[中文文档](https://github.com/WorldArena2/WorldArena-2.0/edit/main/assets/track2_benchmark_description_zh.md)**
+**[中文文档](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_benchmark_description_zh.md)**
 
-**[English Document](https://github.com/WorldArena2/WorldArena-2.0/edit/main/assets/track2_benchmark_description_en.md)**
+**[English Document](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_benchmark_description_en.md)**
 
 ## 1. Track Objective
 
