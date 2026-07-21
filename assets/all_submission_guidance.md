@@ -6,7 +6,7 @@
 
 > **IROS 2026 WorldArena 2.0 Challenge** — [Challenge Page](http://iros2026challenge.world-arena.ai/)
 
-This document is a directory of the three track-specific evaluation and submission guides. Please follow the detailed document for your selected track.
+This document is a directory of the three track-specific evaluation and submission guides. Please follow the detailed document for your selected track.When submitting, please send an email to worldarenav2@outlook.com, with the subject line named {model name}_{version number}_Track1/2/3_Submission. Specific submission requirements for each track are as follows:
 
 ## Track 1: Video Quality
 
