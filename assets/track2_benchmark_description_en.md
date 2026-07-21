@@ -51,14 +51,12 @@ Official initial conditions
 
 Evaluation uses closed-loop, multi-round rollouts of action chunks. A later request may use output generated in the preceding round as its new visual history. The model must therefore control drift over long-horizon rollouts, rather than merely generate a single video segment.
 
-To ensure fairness, the organizer fixes the following for all submissions:
+To ensure fairness, the official documentation specifies the following for all submissions:
 
-- Initial policy checkpoint;
-- Hidden reset samples and their grouping;
-- Policy, sampling, and training random seeds;
-- MBRL algorithm, reward module, optimizer, and training budget;
-- Number of world-model requests, maximum prediction horizon, and runtime resource budget;
-- Final evaluation environment, initial conditions, and evaluation seeds.
+- [Initial policy checkpoint](https://huggingface.co/WorldArena/WorldArena2.0/tree/main/pi05_adjust_bottle);
+- [RL reward function checkpoint](https://huggingface.co/WorldArena/WorldArena2.0/tree/main/reward_model);
+- Task: Adjust Bottle
+- [WM Fine-tuning Dataset](https://huggingface.co/datasets/TianxingChen/RoboTwin2.0/blob/main/dataset/adjust_bottle/aloha-agilex_clean_50.zip)
 
 During training, actions are generated dynamically by the current policy; a complete trajectory is not fixed in advance. Different world models may produce different future observations, and an updated policy may consequently produce different subsequent actions. These closed-loop differences are precisely what this track is intended to evaluate.
 
