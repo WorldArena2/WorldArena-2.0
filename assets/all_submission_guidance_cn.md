@@ -6,7 +6,7 @@
 
 > **IROS 2026 WorldArena 2.0 Challenge** — [挑战赛主页](http://iros2026challenge.world-arena.ai/)
 
-本文档仅汇总三个赛道的详细文档入口。请选择对应赛道，并按照详细文档准备提交内容，提交时请发送邮件到worldarenav2@outlook.com，命名为
+本文档仅汇总三个赛道的详细文档入口。请选择对应赛道，并按照详细文档准备提交内容，提交时请发送邮件到worldarenav2@outlook.com，邮件主题命名为{模型名称}_\{版本号}\_Track1/2/3_Submission,具体每个track提交要求如下：
 
 ## Track 1：视频质量
 
