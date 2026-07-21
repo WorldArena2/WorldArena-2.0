@@ -62,12 +62,10 @@ Model-Based Reinforcement Learning（MBRL）环境的实际价值。
 
 为保证公平性，官方对所有提交固定：
 
-- 初始策略 checkpoint；
-- 隐藏 reset 样本及其分组方式；
-- 策略、采样和训练随机种子；
-- MBRL 算法、奖励模块、优化器和训练预算；
-- 世界模型请求次数、最大预测长度和运行资源预算；
-- 最终评测环境、初始条件和评测种子。
+- [初始策略 checkpoint](https://huggingface.co/WorldArena/WorldArena2.0/tree/main/pi05_adjust_bottle)；
+- [RL奖励函数 checkpoint](https://huggingface.co/WorldArena/WorldArena2.0/tree/main/reward_model)；
+- 任务：adjust bottle
+- [WM微调数据集](https://huggingface.co/datasets/TianxingChen/RoboTwin2.0/blob/main/dataset/adjust_bottle/aloha-agilex_clean_50.zip)
 
 训练期间的动作由当前策略动态产生，不预先固定整条轨迹。不同世界模型会产生
 不同未来观测，策略更新后也可能产生不同后续动作；这种闭环差异正是本赛道需要
