@@ -171,7 +171,7 @@ u_j: p_(j-1) -> p_j, j > 0
 }
 ```
 
-示例数值不构成正式 profile 承诺。参赛服务必须声明真实能力，并满足：
+以上示例数值仅供说明。当前公开发布的官方 profile 见 [`assets/track2_official_profile.json`](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_official_profile.json)。参赛服务必须声明真实能力，并满足：
 
 - `profiles` 至少包含一个官方要求的 `profile_id`；
 - `context_frames.min >= 1`，`prediction_frames.min >= 1`；

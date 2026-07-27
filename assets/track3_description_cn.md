@@ -8,7 +8,7 @@ Track 3 是 WorldArena  benchmark 的**真机操作任务赛道**。参赛队伍
 
 我们鼓励参赛的世界模型（WAM）同时尝试**纯视觉任务**和**视觉-触觉任务**，以展示在视觉和接触反馈下的真实世界泛化操作能力。
 
-相关任务数据请参见 Hugging Face：`<PENDING_HUGGINGFACE_DATASET_URL>`
+相关任务数据请参见 Hugging Face：[WorldArena/WorldArena2.0](https://huggingface.co/datasets/WorldArena/WorldArena2.0)
 
 ---
 
@@ -37,6 +37,55 @@ Track 3 是 WorldArena  benchmark 的**真机操作任务赛道**。参赛队伍
 | 夹薯片 | 拿起一片易碎的薯片而不压碎它放到盘子里。 |
 | 削皮黄瓜 | 固定黄瓜并用削皮器削去外皮。 |
 | 插两孔插头 | 对准并将两孔插头插入插座。 |
+
+---
+
+## 数据集
+
+Track 3 的真机演示数据托管于 Hugging Face：[WorldArena/WorldArena2.0](https://huggingface.co/datasets/WorldArena/WorldArena2.0)。仓库按任务组织，每个任务包含若干条真人演示的真机 episode。
+
+### 任务目录
+
+| 目录名 | 任务名称 | 类别 |
+|---|---|---|
+| `clean_table` | 清理桌面 | 纯视觉 |
+| `clean_table_instruction_follow` | 指令跟随清理桌面 | 纯视觉 |
+| `fold_box` | 叠纸盒 | 纯视觉 |
+| `fold_shirt` | 叠衣服 | 纯视觉 |
+| `pour_over_coffee` | 手冲咖啡 | 纯视觉 |
+| `pour_water` | 倒水 | 纯视觉 |
+| `wipe_table` | 擦桌子 | 纯视觉 |
+| `insert` | 插两孔插头 | 视觉-触觉 |
+| `peel_cucumber` | 削皮黄瓜 | 视觉-触觉 |
+| `pick_potato_chip` | 夹薯片 | 视觉-触觉 |
+
+### 数据规模
+
+每个任务约包含 **100 条**演示数据，其中 `pour_over_coffee`（手冲咖啡）任务目前共有 **83 条**有效演示。
+
+### 单条 Episode 文件说明
+
+每条 episode 为一个独立目录，包含以下文件：
+
+**纯视觉任务**
+
+- `cam_high.mp4`：头顶相机录制的第一视角视频。
+- `cam_left_wrist.mp4`：左臂腕部相机视频。
+- `cam_right_wrist.mp4`：右臂腕部相机视频。
+- `episode.hdf5`：运行时的机器人状态与动作序列，其中动作部分为**关节动作（joint actions）**；在复现与真机测试时，机器人将直接接收并执行该关节动作。
+- `meta.json`：该 episode 的元信息（如任务标签、采集时间等）。
+
+**视觉-触觉任务**
+
+视觉-触觉任务在纯视觉文件的基础上额外提供：
+
+- `tactile_gripper_left_rectify.mp4`：左夹爪触觉贴片 rectify 后的视频。
+- `tactile_gripper_right_rectify.mp4`：右夹爪触觉贴片 rectify 后的视频。
+- `tactile_information.hdf5`：触觉力学信息，包括力/力矩以及 3D 形变等数据。
+
+### 动作格式
+
+所有任务的真机测试均统一采用**关节动作（joint actions）**作为最终控制指令。策略输出需为机器人关节空间动作，真机系统接收后直接进入底层执行。
 
 ---
 
@@ -75,4 +124,5 @@ Track 3 是 WorldArena  benchmark 的**真机操作任务赛道**。参赛队伍
 ## 参赛建议
 
 - 我们鼓励 WAM 同时参加**纯视觉类别和视觉-触觉类别**，因为后者测试的是具备接触感知能力的世界模型。
+- 在真机测试阶段，机器人将以**关节动作（joint actions）**作为控制指令接收并执行策略输出。
 - 接口与部署说明请参见同文件夹下的[policy_guide_cn.md](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/policy_guide_cn.md)。

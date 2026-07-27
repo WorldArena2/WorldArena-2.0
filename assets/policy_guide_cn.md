@@ -134,6 +134,7 @@ new_obs["tactile"] = {
   tactile_force = np.concatenate([left_force, right_force], axis=0)  # float32 (12,)
   ```
 - 力觉数据为**原始传感器输出**。
+- 真机测试时，我方返回的触觉信息与数据集中提供的触觉信息保持一致，包括 `force maker2D` 等字段。
 
 ---
 
@@ -171,10 +172,10 @@ class Policy:
 
 ### 4.1 启动该示例策略
 
-`challenge_pre/` 目录下已提供启动脚本 `start_policy_worker.sh`，使用相对路径即可直接启动策略 Worker：
+`track3_example/` 目录下已提供启动脚本 `start_policy_worker.sh`，使用相对路径即可直接启动策略 Worker：
 
 ```bash
-cd challenge_pre
+cd track3_example
 bash start_policy_worker.sh
 ```
 
@@ -195,7 +196,7 @@ python serve_policy_worldarena.py \
 
 ## 五、Hub 网关地址
 
-正式参赛前，我方会向参赛队伍提供具体的 Hub 网关地址：
+正式参赛时，请联系我方会向参赛队伍提供具体的 Hub 网关地址：
 
 ```text
 <PENDING_HUB_GATEWAY_URL>/policy
@@ -215,7 +216,7 @@ python serve_policy_worldarena.py \
 
 ## 七、需要保持运行的服务
 
-外部团队机器 A 上只需挂起一个进程。在 `challenge_pre/` 目录下直接运行：
+外部团队机器 A 上只需挂起一个进程。类似在 `track3_example/` 目录下直接运行：
 
 ```bash
 bash start_policy_worker.sh
@@ -230,7 +231,7 @@ python serve_policy_worldarena.py \
   --worker-key <PENDING_POLICY_ID>
 ```
 
-该进程会：
+该进程需要：
 - 向 Hub 注册
 - 心跳保活（约 15 秒一次）
 - 长轮询接收 `infer` / `reset` 任务
@@ -240,7 +241,7 @@ python serve_policy_worldarena.py \
 
 ### 7.1 本地自查：启动虚拟 Hub（机器 B）
 
-如需在本地模拟机器 B 的 Hub 进行自查或调试，可在 `challenge_pre/` 目录下启动本地虚拟 Hub：
+如需在本地模拟机器 B 的 Hub 进行自查或调试，可在 `track3_example/` 目录下启动本地虚拟 Hub：
 
 ```bash
 bash start_hub.sh
@@ -288,7 +289,7 @@ pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorc
 
 ### 9.3 安装其他依赖
 
-`challenge_pre/` 目录下提供了从 ViTAL 环境导出的 `requirements.txt`。在 `challenge_pre/` 目录下执行：
+`track3_example/` 目录下提供了从 ViTAL 环境导出的 `requirements.txt`。在 `track3_example/` 目录下执行：
 
 ```bash
 pip install -r requirements.txt

@@ -8,7 +8,7 @@ Track 3 is the **real-robot task track** of the WorldArena benchmark. Participat
 
 We encourage participating World Models (WAMs) to attempt both **vision-only** and **vision-tactile** tasks, demonstrating generalizable real-world manipulation under visual and contact feedback.
 
-Task data is available on Hugging Face: `<PENDING_HUGGINGFACE_DATASET_URL>`
+Task data is available on Hugging Face: [WorldArena/WorldArena2.0](https://huggingface.co/datasets/WorldArena/WorldArena2.0)
 
 ---
 
@@ -37,6 +37,55 @@ These tasks require contact-rich manipulation. Tactile feedback (force/torque an
 | Pick Potato Chip | Pick up a fragile potato chip without crushing it and place it on a plate. |
 | Peel Cucumber | Hold a cucumber and peel its skin with a peeler. |
 | Insert Two-Pin Plug | Align and insert a two-pin plug into a socket. |
+
+---
+
+## Dataset
+
+The real-robot demonstration data for Track 3 is hosted on Hugging Face: [WorldArena/WorldArena2.0](https://huggingface.co/datasets/WorldArena/WorldArena2.0). The repository is organized by task, and each task contains human-collected real-robot episodes.
+
+### Task Directories
+
+| Directory | Task | Category |
+|---|---|---|
+| `clean_table` | Clean Tabletop | Vision-Only |
+| `clean_table_instruction_follow` | Instruction-Following Clean Tabletop | Vision-Only |
+| `fold_box` | Fold Cardboard Box | Vision-Only |
+| `fold_shirt` | Fold Clothes | Vision-Only |
+| `pour_over_coffee` | Hand-Drip Coffee | Vision-Only |
+| `pour_water` | Pour Water | Vision-Only |
+| `wipe_table` | Wipe Table | Vision-Only |
+| `insert` | Insert Two-Pin Plug | Vision-Tactile |
+| `peel_cucumber` | Peel Cucumber | Vision-Tactile |
+| `pick_potato_chip` | Pick Potato Chip | Vision-Tactile |
+
+### Data Volume
+
+Each task contains approximately **100** demonstration episodes, except `pour_over_coffee` (Hand-Drip Coffee), which currently has **83** valid demonstrations.
+
+### Per-Episode File Description
+
+Each episode is stored in its own directory and contains the following files:
+
+**Vision-Only Tasks**
+
+- `cam_high.mp4`: Video from the head-mounted camera.
+- `cam_left_wrist.mp4`: Video from the left wrist camera.
+- `cam_right_wrist.mp4`: Video from the right wrist camera.
+- `episode.hdf5`: Runtime robot states and actions, where the action component consists of **joint actions**; during replay and real-robot testing, the robot directly receives and executes these joint actions.
+- `meta.json`: Episode metadata (e.g., task label, collection timestamp).
+
+**Vision-Tactile Tasks**
+
+Vision-tactile tasks provide the same files as vision-only tasks plus the following:
+
+- `tactile_gripper_left_rectify.mp4`: Rectified tactile patch video for the left gripper.
+- `tactile_gripper_right_rectify.mp4`: Rectified tactile patch video for the right gripper.
+- `tactile_information.hdf5`: Tactile mechanics information, including force/torque and 3D deformation data.
+
+### Action Format
+
+All tasks use **joint actions** as the final control command during real-robot testing. Policy outputs must be in the robot's joint action space, which the real-robot system receives and executes directly.
 
 ---
 
@@ -76,5 +125,6 @@ We rate each task on a scale of **1 (easiest) to 10 (hardest)** based on the req
 
 - Teams may submit policies for any subset of tasks.
 - We encourage WAMs to compete in **both vision-only and vision-tactile categories**, as the latter tests contact-aware world modeling.
+- During real-robot testing, the robot receives and executes policy outputs as **joint actions**.
 - Policies should be robust to real-world sensory noise, latency, and partial observability.
 - See [policy_guide.md](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/policy_guide.md) in this folder for the policy Worker interface and deployment instructions.

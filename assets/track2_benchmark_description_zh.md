@@ -89,8 +89,8 @@ Model-Based Reinforcement Learning（MBRL）环境的实际价值。
 - 可选、非评分用途的运行诊断信息。
 
 图像、动作、状态的编码、shape、对齐规则和空值规则以
-[API 文档][world_model_service_api_zh.md](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_world_model_service_api_zh.md)为准。官方将在评测前提供需要支持的
-profile；公开示例仅用于接口联调，不代表保留评测分布。
+[API 文档](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_world_model_service_api_zh.md)为准。当前公开发布的官方 profile 见
+[`assets/track2_official_profile.json`](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_official_profile.json)。公开示例仅用于接口联调，不代表保留评测分布。
 
 ## 5. 评价内容
 
@@ -173,4 +173,5 @@ profile；公开示例仅用于接口联调，不代表保留评测分布。
 ## 10. 相关文档
 
 - [候选世界模型服务 API](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_world_model_service_api_zh.md)
+- [官方 Track 2 Profile](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_official_profile.json)
 

@@ -142,6 +142,7 @@ new_obs["tactile"] = {
   ```
 
 - Force measurements are provided as **raw sensor outputs**.
+- During real-robot testing, the tactile information returned by our system matches the tactile information provided in the dataset, including `force maker2D` and related fields.
 
 ---
 
@@ -181,10 +182,10 @@ class Policy:
 
 ### 4.1 Starting the Example Policy
 
-A startup script named `start_policy_worker.sh` is provided in the `challenge_pre/` directory. The policy Worker can be started directly using relative paths:
+A startup script named `start_policy_worker.sh` is provided in the `track3_example/` directory. The policy Worker can be started directly using relative paths:
 
 ```bash
-cd challenge_pre
+cd track3_example
 bash start_policy_worker.sh
 ```
 
@@ -225,7 +226,7 @@ The `worker-key` used when Machine A registers with the Hub must exactly match t
 
 ## 7. Services That Must Remain Running
 
-The participating team only needs to keep one process running on Machine A. From the `challenge_pre/` directory, run:
+The participating team only needs to keep one process running on Machine A. From the `track3_example/` directory, run:
 
 ```bash
 bash start_policy_worker.sh
@@ -251,7 +252,7 @@ Machine A **does not need to expose any inbound ports**. All communication is in
 
 ### 7.1 Local Self-Check: Starting a Dummy Hub for Machine B
 
-To simulate Machine B locally for testing or debugging, start the local dummy Hub from the `challenge_pre/` directory:
+To simulate Machine B locally for testing or debugging, start the local dummy Hub from the `track3_example/` directory:
 
 ```bash
 bash start_hub.sh
@@ -300,7 +301,7 @@ pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorc
 
 ### 9.3 Installing Other Dependencies
 
-A `requirements.txt` file exported from the ViTAL environment is provided in the `challenge_pre/` directory. Run the following command from that directory:
+A `requirements.txt` file exported from the ViTAL environment is provided in the `track3_example/` directory. Run the following command from that directory:
 
 ```bash
 pip install -r requirements.txt

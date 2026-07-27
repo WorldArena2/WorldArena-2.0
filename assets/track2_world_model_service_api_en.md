@@ -157,7 +157,7 @@ A successful response returns `200`:
 }
 ```
 
-The example values do not constitute a commitment for an official profile. A participant service must declare its actual capabilities and satisfy the following:
+The example values above are illustrative only. The currently published official profile is available at [`assets/track2_official_profile.json`](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_official_profile.json). A participant service must declare its actual capabilities and satisfy the following:
 
 - `profiles` contains at least one officially required `profile_id`;
 - `context_frames.min >= 1` and `prediction_frames.min >= 1`;

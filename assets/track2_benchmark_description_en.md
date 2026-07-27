@@ -77,7 +77,7 @@ The canonical output includes:
 - Service-version and request-correlation information;
 - Optional runtime diagnostics that are not used for scoring.
 
-The encoding, shape, alignment, and null-value rules for images, actions, and states are defined by the [API document](track2_world_model_service_api_en.md). The organizer will provide the profiles that must be supported before evaluation. Public examples are for interface integration only and do not represent the held-out evaluation distribution.
+The encoding, shape, alignment, and null-value rules for images, actions, and states are defined by the [API document](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_world_model_service_api_en.md). The currently published official profile is available at [`assets/track2_official_profile.json`](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_official_profile.json). Public examples are for interface integration only and do not represent the held-out evaluation distribution.
 
 ## 5. Evaluation Criteria
 
@@ -150,3 +150,4 @@ The evaluator may retry retryable failures a limited number of times. Persistent
 ## 10. Related Documents
 
 - [Candidate World Model Service API](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_world_model_service_api_en.md)
+- [Official Track 2 Profile](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_official_profile.json)
