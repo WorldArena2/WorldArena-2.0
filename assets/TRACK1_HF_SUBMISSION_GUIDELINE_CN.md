@@ -177,6 +177,8 @@ The submitted videos correspond to the official WorldArena Track 1 test split.
 | `paper_url` | 可选 | 论文链接 |
 | `code_url` | 可选 | 代码仓库链接 |
 
+！！！**注意：**如果一个同名模型提交1次以上，不同提交的版本的version一定不能一样，否则将区分不出提交的版本，只评测一次，把其他的提交自动过滤
+
 ### 5.3 字段含义
 
 `source_type` 表示模型是否开源：

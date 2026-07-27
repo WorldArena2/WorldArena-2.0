@@ -176,6 +176,8 @@ The submitted videos correspond to the official WorldArena Track 1 test split.
 | `paper_url` | No | Paper URL |
 | `code_url` | No | Code repository URL |
 
+!!! NOTE: If the same model name is submitted multiple times, the version numbers for each submission must be different. Otherwise, the submissions cannot be distinguished, and only one will be evaluated; the others will be automatically filtered out.
+
 ### 5.3 Field Definitions
 
 `source_type` indicates whether the model is open source:
