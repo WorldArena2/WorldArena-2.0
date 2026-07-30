@@ -1,1 +1,1 @@
-"""Real-world benchmark utilities for Policy interface testing."""
+"""WorldArena A-side policy worker utilities."""

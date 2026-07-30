@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "real-world-benchmark"
+version = "0.1.0"
+description = "WorldArena A-side policy worker integration example"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "msgpack>=1.0",
+    "numpy>=1.23",
+    "opencv-python-headless>=4.8",
+    "requests>=2.31",
+    "scipy>=1.10",
+    "websocket-client>=1.6",
+    "websockets>=12.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["real_world_benchmark", "examples", "examples.*", "policy", "policy.*"]

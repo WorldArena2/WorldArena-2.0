@@ -1,108 +1,183 @@
-# Real-world Benchmark — Interface Documentation (English)
+# WorldArena A-Side Policy Worker Example
 
-## Overview
-- **Purpose**: Provide a unified interface for evaluating real-robot test policies, enabling consistent input/output specifications across different models.
-- **Location**: `real_world_benchmark/`
+本分支是面向模型侧 A 端的最小接入示例，用于实现 `wa-policy-v1` / `wa-hub-v1` policy worker，并将本地 `Policy.infer(new_obs)` 接入 WorldArena 调度。
 
-## Core Interface Contract
-- The testee provides a Python file or module that defines a class `Policy` with a method `infer(self, new_obs)`.
-- The benchmark imports the `Policy`, constructs or receives `new_obs`, calls `Policy.infer(new_obs)`, and parses the returned action (`output`).
+不包含：
+- C 端机器人本体实现、私有机器人通信包
+- B 端 `benchmark_runner` / Hub server 调度实现、task suite 评测代码
 
-## `new_obs` (Observation passed to `Policy.infer`)
-- **Type**: Python `dict`
-- **Common fields**:
-  - `images`: `dict` mapping camera names to image arrays (`numpy.ndarray`, dtype `uint8` or `float`)
-    - `cam_high`: ndarray(H, W, 3) — top/main camera current frame (also duplicated to `first_frame`)
-    - `cam_left_wrist`, `cam_right_wrist`: ndarray(H, W, 3) — wrist camera frames (optional)
-    - `cam_high_memory`: ndarray(T, H, W, 3) — history frame sequence (optional)
-  - `first_frame`: ndarray(H, W, 3) — same as `images['cam_high']` (convenience for models)
-  - `state`: `numpy.ndarray` — numeric state vector (robot state / eef / joints)
-    - Typical formats:
-      - **eef6d style** (common lengths 20 or 32 in example code):
-        - 0:3 = left_pos (x,y,z)
-        - 3:9 = left_rot6d (6-d continuous rotation)
-        - 9:10 = left_gripper
-        - 10:13 = right_pos
-        - 13:19 = right_rot6d
-        - 19:20 = right_gripper
-        - 20:32 = padding (if present)
-      - **Joint space style**: e.g. 7 joints per arm → length 14
-  - `prompt`: optional string task description
-  - Any other fields: policies may read as needed
+## 目录结构
 
-**Note**: Images may be float ([0,1]) or uint8 ([0,255]); policy implementations should handle both robustly.
+```text
+.
+├── serve_policy_worldarena.py   # A 端启动入口（WebSocket / Hub worker）
+├── policy_loader.py             # load_policy：按文件路径或模块路径加载 Policy
+├── worldarena/                  # 协议、schema、序列化、legacy bridge、Hub client
+│   ├── policy_remote.py         # wa-policy-v1 WebSocket server
+│   ├── hub_policy_worker.py     # wa-hub-v1 policy worker loop
+│   ├── hub_worker.py            # Hub HTTP long-poll client
+│   ├── bridges/legacy_policy.py # ObservationPacket ↔ new_obs / actions ↔ ActionPacket
+│   ├── schema.py / protocol.py / serde.py
+│   └── hub_json.py / hub_codec.py / hub_protocol.py
+├── examples/policy_template/    # 最小可运行 smoke Policy（零权重）
+├── policy/_template/            # 可复制的自定义 Policy 模板
+├── docs/
+│   ├── policy_a_standard_protocol.md
+│   ├── policy_a_standard_protocol_vision_only.md
+│   ├── new_policy_integration.md
+│   └── wa-hub-v1-api.md
+├── scripts/start_policy_ws.sh
+├── scripts/start_policy_hub.sh
+├── requirements-a.txt
+└── pyproject.toml
+```
 
-## `output` (Return value of `Policy.infer`)
-- **Type**: Python `dict`
-- **Mandatory field**:
-  - `actions`: `numpy.ndarray` or list, shape typically `(T, D)`, `(1, D)`, or `(D,)`.
-    - `T` = time steps horizon, `D` = action dimension (e.g. 32 or 14)
-    - For eef6d style (D >= 20 or 32), first 20 dimensions contain valid eef info (see `state` mapping), the rest are padding
-- **Optional fields**: `policy_timing`, `video`, debug info, etc.
-- **Rotation format**: If output uses 6-d continuous rotation, the upper layer converts cont6d -> matrix -> quat (the benchmark runner provides an example).
+## 安装
 
-### Example minimal `new_obs`
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+pip install -r requirements-a.txt
+```
+
+可选：若观测包中含 JPEG 图像字段且需要本地解码，安装 `opencv-python-headless`（已列在 requirements 中）。
+
+## 实现 Policy 类
+
+策略模块需提供名为 `Policy` 的类：
+
 ```python
-new_obs = {
-    'images': {'cam_high': np.zeros((240,320,3), dtype=np.uint8)},
-    'first_frame': np.zeros((240,320,3), dtype=np.uint8),
-    'state': np.zeros((32,), dtype=np.float32),
-    'prompt': 'place the red block'
-}
+from typing import Any, Dict, Optional
+import numpy as np
+
+class Policy:
+    def __init__(self, config_path: Optional[str] = None):
+        ...
+
+    def reset(self, reset_info: Optional[Dict[str, Any]] = None) -> None:
+        ...
+
+    def infer(self, new_obs: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "actions": np.zeros((chunk, action_dim), dtype=np.float32),
+            "policy_metadata": {
+                "policy_id": "MyPolicy",
+                "action_format": "joint",  # or eef6d_single / eef6d
+                "action_dim": action_dim,
+                "chunk_size": chunk,
+            },
+            "policy_timing": {"infer_ms": 0.0},
+        }
 ```
 
-### Example `output`
-```python
-output = {
-    'actions': np.zeros((1, 32), dtype=np.float32),
-    'policy_timing': {'infer_ms': 12.3}
-}
-```
+`new_obs` 由框架从 canonical `ObservationPacket` 经 legacy bridge 转换得到。  
+**任务自然语言指令来自 B 端 task suite**，A 端应从以下位置读取（二者等价）：
 
-## How to use the example runner
-- Place your policy file (e.g. `my_policy.py`, with a `Policy` class defined inside) anywhere.
-- Run the example runner (offline smoke test) directly:
+- `new_obs["prompt"]`
+- `ObservationPacket.context.task_instruction`
+
+可直接参考：
+
+- 可运行 smoke 示例：`examples/policy_template/policy.py`
+- 自定义模板：`policy/_template/policy.py`
+
+## WebSocket 模式启动（wa-policy-v1）
 
 ```bash
-python -m real_world_benchmark.benchmark_runner    # loads example_policy by default
-python -m real_world_benchmark.benchmark_runner /path/to/my_policy.py
-python -m real_world_benchmark.benchmark_runner my_module.path  # import as module
+python -m real_world_benchmark.serve_policy_worldarena \
+  real_world_benchmark.examples.policy_template.policy \
+  --host 0.0.0.0 \
+  --port 8000
 ```
 
-## Training-data offline mode
-- This mode reads samples from training data (`AgileXDataset`) to construct `new_obs`. Suitable for initial model capability screening and offline interface validation.
-- Default data directory matches the debug path in the script; you can adjust sampling via `--dataset-dir`, `--dataset-index`, `--dataset-step`.
+或：
 
 ```bash
-python -m real_world_benchmark.benchmark_runner /path/to/my_policy.py --mode dataset
-python -m real_world_benchmark.benchmark_runner your.module.path --mode dataset --dataset-limit 20
-python -m real_world_benchmark.benchmark_runner your.module.path --mode dataset --dataset-dir /path/to/train_data --dataset-index 1000 --dataset-step 30
+bash scripts/start_policy_ws.sh
 ```
 
-### Dataset mode arguments
-- `--dataset-dir` : Training data directory.
-- `--dataset-index` : Starting frame index.
-- `--dataset-step` : Frame interval (e.g., 30 to match real‑robot sliding window rhythm).
-- `--dataset-limit` : Number of samples to evaluate.
-- `--dataset-action-horizon` : Action horizon in dataset, default 50.
-- `--dataset-action-type eef6d|joint_angle` : Action type in dataset.
-- `--read-from-hdf5` : Read images from HDF5.
+B 端以 `ws://<A-host>:8000` 连接。
 
-## Live benchmark mode
-- For real‑robot testing, use `--mode live`. The runner assembles `new_obs` by calling `wait_observation()` (similar to `scripts/pi05_wma_server_eef_vpp.py`), using `img_front/img_left/img_right` for images, and reading `left_end_pose/right_end_pose`, `left_arm_joint_state/right_arm_joint_state` for the `state`.
-- If your policy outputs action sequences and you want to send them back to the server, add `--send-action`.
+## Hub worker 模式启动（wa-hub-v1）
+
+A 端主动出站长轮询，无需公网入站端口：
 
 ```bash
-python -m real_world_benchmark.benchmark_runner /path/to/my_policy.py --mode live --send-action
-python -m real_world_benchmark.benchmark_runner your.module.path --mode live --max-steps 100
+export HUB_POLICY_URL="https://<hub-host>/policy"
+export POLICY_ID="MyPolicy_task_v1"   # 即 worker-key
+# export HUB_TOKEN="..."              # 如网关需要
+
+python -m real_world_benchmark.serve_policy_worldarena \
+  real_world_benchmark.examples.policy_template.policy \
+  --hub-url "${HUB_POLICY_URL}" \
+  --worker-key "${POLICY_ID}"
 ```
 
-### Live mode arguments
-- `--use-history` : Attach history frames to `new_obs['images']['cam_high_memory']`.
-- `--action-format auto|eef6d|joint` : How to parse actions, auto‑detect by default.
-- `--max-steps N` : Number of live iterations; `<=0` means run indefinitely.
-- `--action-rate` : Frequency of sending actions back.
+或：
 
-## Example policy and runner location
-- `real_world_benchmark/example_policy.py`
-- `real_world_benchmark/benchmark_runner.py`
+```bash
+export HUB_POLICY_URL="https://<hub-host>/policy"
+export POLICY_ID="MyPolicy_task_v1"
+bash scripts/start_policy_hub.sh
+```
+
+### worker-key 与 B 端配置一致
+
+Hub 用 `worker_key` 把评测任务路由到对应 policy worker。
+
+- A 端：`--worker-key` / 环境变量 `POLICY_ID`
+- B 端：task suite / runner 配置中的 policy worker key **必须与上述字符串完全一致**
+
+不一致时，Hub 无法把 infer 任务投递到你的 worker。
+
+## actions 维度与 action_format 约定
+
+| `action_format` | 典型 `actions` shape | 说明 |
+|---|---|---|
+| `joint` | `(chunk, 14)` | 双臂关节绝对位置，前 7 维左臂、后 7 维右臂 |
+| `joint`（单臂） | `(chunk, 7)` 或 `(chunk, 8)` | 需在 metadata 中声明 `control_arm` |
+| `eef6d_single` | `(chunk, 10)` | 单臂相机系 eef6d + gripper |
+| `eef6d` | `(chunk, ≥20)` | 双臂 eef6d |
+
+在 `policy_metadata` 中返回：
+
+- `action_format`
+- `action_dim` / `chunk_size`
+- 单臂时的 `control_arm`（`left` / `right`）
+
+框架会把 `{"actions": ndarray}` 转为 canonical `ActionPacket` 回传 B 端。
+
+## Legacy bridge（A 端必需路径）
+
+默认开启 legacy bridge：
+
+1. `ObservationPacket` → `new_obs`（含 `images` / `state` / `prompt` / 可选 `tactile`）
+2. `Policy.infer(new_obs)` → `{"actions": ...}`
+3. actions + metadata/timing → `ActionPacket`（并透传 `policy_metadata` / `policy_timing`）
+
+仅接受 canonical packet、不走 `new_obs` 时，可加 `--no-legacy-bridge`（需自行处理 packet）。
+
+## 文档
+
+- [A 端标准协议](docs/policy_a_standard_protocol.md)
+- [A 端标准协议（纯视觉）](docs/policy_a_standard_protocol_vision_only.md)
+- [新 Policy 接入指南](docs/new_policy_integration.md)
+- [Hub API](docs/wa-hub-v1-api.md)
+
+## 本地冒烟
+
+```bash
+# 加载并 infer 一次
+python -c "
+from real_world_benchmark.policy_loader import load_policy
+import numpy as np
+mod = load_policy('real_world_benchmark.examples.policy_template.policy')
+p = mod.Policy()
+out = p.infer({'images': {'cam_high': np.zeros((64,64,3), dtype=np.uint8)}, 'prompt': 'demo', 'state': np.zeros(14, dtype=np.float32)})
+assert out['actions'].ndim == 2
+print('ok', out['actions'].shape)
+"
+
+python -m real_world_benchmark.serve_policy_worldarena --help
+```

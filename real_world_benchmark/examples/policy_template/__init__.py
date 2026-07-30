@@ -1,0 +1,1 @@
+"""Minimal smoke Policy package."""
