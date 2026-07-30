@@ -2,6 +2,13 @@
 
 > This document is intended for participating teams that need to deploy a policy Worker on their own machine (Machine A) and connect it to our central scheduler (Machine B) and physical robot system (Machine C).
 
+Track 3 supports **two platforms**. Action dimension and observation fields depend on the assigned robot:
+
+| Platform | Action format | `action_dim` | Notes |
+|---|---|---|---|
+| **AgileX** dual-arm | `joint_absolute` (qpos) | **14** | Left 7 + right 7 |
+| **Franka** single-arm | `end_pose_base` | **8** | `[x, y, z, qw, qx, qy, qz, gripper]` |
+
 ---
 
 ## 1. Architecture and Data Flow
@@ -64,15 +71,33 @@ class Policy:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `actions` | `np.ndarray` | Yes | Action chunk with `shape=(chunk, action_dim)`. Example: `chunk=25`, `action_dim=14` for a dual-arm robot, with the left-arm dimensions followed by the right-arm dimensions. The policy may choose its own `chunk` length. |
+| `actions` | `np.ndarray` | Yes | Action chunk with `shape=(chunk, action_dim)`. `action_dim` is **14** on AgileX and **8** on Franka. The policy may choose its own `chunk` length (common values: 20, 25). |
 
-**Action semantics:** `actions[t]` represents the target joint position at step `t` using the `joint_absolute` action representation. Our system executes the returned actions sequentially. The action chunk length `chunk` may be chosen by the policy, with common values including 20 and 25. The action dimension `action_dim` is 14 for the dual-arm robot: the first 7 dimensions correspond to the left arm, and the last 7 dimensions correspond to the right arm.
+### 2.2 AgileX Action Semantics (`joint_absolute` / qpos)
+
+```text
+actions[t] = [left_j1..left_j6, left_gripper, right_j1..right_j6, right_gripper]  # 14D
+```
+
+Each row is an absolute joint-position target. Our system executes the returned joint targets sequentially. Demonstration labels for control are stored in `observations/qpos` in the dataset HDF5.
+
+### 2.3 Franka Action Semantics (`end_pose_base`)
+
+```text
+actions[t] = [x, y, z, qw, qx, qy, qz, gripper]  # 8D
+```
+
+- Position `(x, y, z)` is in the **robot base frame** (meters)
+- Orientation `(qw, qx, qy, qz)` is a **wxyz** quaternion
+- `gripper` is the gripper opening command
+
+Demonstration labels for control are stored in `observations/end_pose[:, 0:8]` in the dataset HDF5.
 
 ---
 
 ## 3. Observation `new_obs` Sent to the Policy
 
-### 3.1 Top-Level Fields
+### 3.1 AgileX Top-Level Fields
 
 ```python
 {
@@ -81,28 +106,30 @@ class Policy:
     "joint_qpos": np.ndarray,            # 14D dual-arm joints: first 7 left, last 7 right
     "right_arm_joint_state": np.ndarray, # 7D right-arm joint state
     "left_arm_joint_state": np.ndarray,  # 7D left-arm joint state
-    "tactile": { ... },                  # Tactile / force observations
+    "tactile": { ... },                  # Present only for vision-tactile tasks
     "prompt": str,                       # Natural-language task description
     "tactile_profile": str,              # Tactile profile label, e.g. "tactile_raw"
     "task_id": str,                      # Current task ID
 }
 ```
 
-### 3.2 `images` Field
+### 3.2 AgileX `images` Field
 
 ```python
 new_obs["images"] = {
-    "cam_high": np.ndarray,          # uint8 HWC, overhead / third-person RGB image
-    "cam_wrist_right": np.ndarray,   # uint8 HWC, right wrist-camera RGB image
-    "cam_wrist_left": np.ndarray,    # uint8 HWC, left wrist-camera RGB image
+    "cam_high": np.ndarray,          # uint8 HWC, overhead / third-person RGB
+    "cam_wrist_left": np.ndarray,    # uint8 HWC, left wrist-camera RGB
+    "cam_wrist_right": np.ndarray,   # uint8 HWC, right wrist-camera RGB
 }
 ```
 
-### 3.3 `tactile` Field
+These correspond to dataset videos `cam_high.mp4`, `cam_left_wrist.mp4`, and `cam_right_wrist.mp4`.
 
-**Vision-only tasks** and **vision-tactile tasks** use the same observation pipeline. The only difference is that vision-tactile tasks include tactile and force data in `new_obs["tactile"]`, whereas **vision-only tasks do not return any tactile information**, meaning that `new_obs["tactile"]` is absent.
+### 3.3 AgileX `tactile` Field
 
-For vision-tactile tasks, the `tactile` field contains two types of signals. Note that **tactile sensing is provided only on the right gripper**:
+**Vision-only tasks** and **vision-tactile tasks** use the same observation pipeline. The only difference is that vision-tactile tasks include tactile and force data in `new_obs["tactile"]`, whereas **vision-only tasks do not return any tactile information** (`new_obs["tactile"]` is absent).
+
+For vision-tactile tasks:
 
 ```python
 new_obs["tactile"] = {
@@ -116,24 +143,18 @@ new_obs["tactile"] = {
 
     # Wrist force sensing from force/torque sensors
     "left_wrist_force": {
-        "wrench_6d": np.ndarray,  # float32 shape (6,), [Fx, Fy, Fz, Tx, Ty, Tz], left sensor
+        "wrench_6d": np.ndarray,  # float32 shape (6,), [Fx, Fy, Fz, Tx, Ty, Tz]
     },
     "right_wrist_force": {
-        "wrench_6d": np.ndarray,  # float32 shape (6,), right sensor
+        "wrench_6d": np.ndarray,  # float32 shape (6,)
     },
 }
 ```
 
 **Notes:**
 
-- `left_gripper` and `right_gripper` provide **tactile images** through the `rectify` field. For example:
-
-  ```python
-  left_tactile_image = new_obs["tactile"]["left_gripper"]["rectify"]   # uint8 HWC
-  right_tactile_image = new_obs["tactile"]["right_gripper"]["rectify"] # uint8 HWC
-  ```
-
-- `left_wrist_force` and `right_wrist_force` provide combined force/torque measurements through `wrench_6d`. For example:
+- Access tactile images via `new_obs["tactile"]["left_gripper"]["rectify"]` / `["right_gripper"]["rectify"]`.
+- Access force/torque via `wrench_6d`. Example:
 
   ```python
   left_force = new_obs["tactile"]["left_wrist_force"]["wrench_6d"]   # float32 (6,)
@@ -142,54 +163,120 @@ new_obs["tactile"] = {
   ```
 
 - Force measurements are provided as **raw sensor outputs**.
-- During real-robot testing, the tactile information returned by our system matches the tactile information provided in the dataset, including `force maker2D` and related fields.
+- During real-robot testing, the tactile information returned by our system matches the tactile information provided in the dataset (including Marker2D / Mesh3D related fields in `tactile_information.hdf5`).
+
+### 3.4 Franka Top-Level Fields
+
+Verified on the live remote-inference path for the Franka endpose deployment:
+
+```python
+{
+    "images": { ... },                      # Visual observations
+    "joint_qpos": np.ndarray,               # float32 (8,)  7 joints + gripper
+    "joint_qpos_left": np.ndarray,          # float32 (8,)  alias of the active arm
+    "left_arm_joint_state": np.ndarray,     # float32 (8,)  same as joint_qpos
+    "left_end_pose": np.ndarray,            # float32 (7,)  [x, y, z, qw, qx, qy, qz]
+    "state": np.ndarray,                    # float32 (32,) padded state buffer
+    "first_frame": np.ndarray,              # uint8 HWC, copy of cam_high
+    "prompt": str,                          # Natural-language task description
+    "task_id": str,                         # Current task ID
+}
+```
+
+Notes:
+
+- Fields such as `joint_qpos_left` / `left_arm_joint_state` / `left_end_pose` refer to the active Franka arm (naming retained from the dual-arm interface).
+- Prefer `joint_qpos` and `left_end_pose` for proprioception; `state` is a fixed-length padded buffer.
+- There is **no tactile** field on current Franka vision-only tasks.
+
+### 3.5 Franka `images` Field
+
+```python
+new_obs["images"] = {
+    "cam_high": np.ndarray,        # uint8 (480, 640, 3), third-person / head RGB
+    "cam_left_wrist": np.ndarray,  # uint8 (480, 640, 3), wrist RGB
+    "cam_wrist": np.ndarray,       # uint8 (480, 640, 3), wrist RGB (same source as cam_left_wrist)
+}
+```
+
+These correspond to dataset videos `third_person.mp4` and `wrist.mp4`. On the current Franka setup, `cam_left_wrist` and `cam_wrist` are the same wrist camera stream (duplicated for interface compatibility).
 
 ---
 
-## 4. Example: Dummy Policy with Fixed Actions
+## 4. Example Policies
 
-The following is a minimal runnable example policy. It ignores the observation input and directly returns a fixed action sequence. External teams may replace this logic with their own model inference implementation.
+### 4.1 AgileX Dummy Policy (14D Joint)
 
 ```python
-# dummy_policy.py
+# dummy_policy_agilex.py
 from typing import Any, Dict, Optional
 import numpy as np
 
 
 class Policy:
     def __init__(self, config_path: Optional[str] = None):
-        # Action chunk length and action dimension.
-        # Participating teams may choose their own chunk length.
         self.chunk = 25
-        self.action_dim = 14  # Dual-arm joints: first 7 left, last 7 right
+        self.action_dim = 14  # dual-arm qpos
 
     def reset(self, reset_info: Optional[Dict[str, Any]] = None) -> None:
         pass
 
     def infer(self, new_obs: Dict[str, Any]) -> Dict[str, Any]:
-        # Example: return a fixed action sequence.
-        # Replace this with model inference for an actual submission.
-        actions = np.zeros((self.chunk, self.action_dim), dtype=np.float32)
-        actions[:, 0] = 0.1   # Left-arm joint 0
-        actions[:, 7] = 0.1   # Right-arm joint 0
-
+        # Example: hold current joints (replace with model inference).
+        qpos = np.asarray(new_obs["joint_qpos"], dtype=np.float32).reshape(14)
+        actions = np.repeat(qpos[None, :], self.chunk, axis=0)
         return {
             "actions": actions,
-            "policy_metadata": {"policy_id": "dummy"},
+            "policy_metadata": {
+                "policy_id": "dummy_agilex",
+                "action_format": "joint_absolute",
+            },
             "policy_timing": {"infer_ms": 0.0},
         }
 ```
 
-### 4.1 Starting the Example Policy
+### 4.2 Franka Dummy Policy (8D Endpose)
 
-A startup script named `start_policy_worker.sh` is provided in the `track3_example/` directory. The policy Worker can be started directly using relative paths:
+```python
+# dummy_policy_franka.py
+from typing import Any, Dict, Optional
+import numpy as np
+
+
+class Policy:
+    def __init__(self, config_path: Optional[str] = None):
+        self.chunk = 25
+        self.action_dim = 8  # end_pose_base
+
+    def reset(self, reset_info: Optional[Dict[str, Any]] = None) -> None:
+        pass
+
+    def infer(self, new_obs: Dict[str, Any]) -> Dict[str, Any]:
+        # Example: hold current endpose (replace with model inference).
+        pose7 = np.asarray(new_obs["left_end_pose"], dtype=np.float32).reshape(7)
+        gripper = np.asarray(new_obs["joint_qpos"], dtype=np.float32).reshape(-1)[-1:]
+        end_pose_8d = np.concatenate([pose7, gripper], axis=0)
+        actions = np.repeat(end_pose_8d[None, :], self.chunk, axis=0)
+        return {
+            "actions": actions.astype(np.float32),
+            "policy_metadata": {
+                "policy_id": "dummy_franka",
+                "action_format": "end_pose_base",
+            },
+            "policy_timing": {"infer_ms": 0.0},
+        }
+```
+
+### 4.3 Starting the Example Policy
+
+A startup script named `start_policy_worker.sh` is provided in the `track3_example/` directory:
 
 ```bash
 cd track3_example
 bash start_policy_worker.sh
 ```
 
-The script contains the following commands, which may also be executed manually:
+Or manually:
 
 ```bash
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
@@ -200,7 +287,7 @@ python serve_policy_worldarena.py \
   --worker-key <PENDING_POLICY_ID>
 ```
 
-`<PENDING_POLICY_ID>` must match the corresponding `benchmark_runner` configuration on our Machine B.
+`<PENDING_POLICY_ID>` must match the corresponding `benchmark_runner` configuration on our Machine B. Use the dummy policy that matches the assigned platform action format.
 
 ---
 
@@ -301,7 +388,7 @@ pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorc
 
 ### 9.3 Installing Other Dependencies
 
-A `requirements.txt` file exported from the ViTAL environment is provided in the `track3_example/` directory. Run the following command from that directory:
+A `requirements.txt` file exported from the evaluation environment is provided in the `track3_example/` directory. Run the following command from that directory:
 
 ```bash
 pip install -r requirements.txt
@@ -313,11 +400,23 @@ pip install -r requirements.txt
 
 ### Q1: What action coordinate system is used?
 
-The current tasks use **14D dual-arm absolute joint positions** with the `joint_absolute` action representation. The first 7 dimensions correspond to the left arm, and the last 7 dimensions correspond to the right arm. The action dimension is 14, while the chunk length may be chosen by the policy or agreed upon before evaluation. The example uses a chunk length of 25.
+It depends on the platform:
+
+- **AgileX:** 14D absolute joint positions (`joint_absolute` / qpos), left arm then right arm.
+- **Franka:** 8D absolute endpose (`end_pose_base`): `[x, y, z, qw, qx, qy, qz, gripper]` in the robot base frame (quaternion **wxyz**).
+
+The chunk length may be chosen by the policy or agreed upon before evaluation.
 
 ### Q2: What happens if the policy crashes or disconnects?
 
 The Hub detects a lost heartbeat, and the organizer-side scheduler terminates the current episode. After the participating team restarts the Worker, it automatically registers with the Hub again.
+
+### Q3: How do dataset files map to inference observations?
+
+| Platform | Dataset cameras | Inference image keys | Control labels |
+|---|---|---|---|
+| AgileX | `cam_high` / `cam_left_wrist` / `cam_right_wrist` | `cam_high` / `cam_wrist_left` / `cam_wrist_right` | `observations/qpos` `(T, 14)` |
+| Franka | `third_person` / `wrist` | `cam_high` / `cam_left_wrist` & `cam_wrist` | `observations/end_pose[:, 0:8]` |
 
 ---
 
@@ -326,7 +425,8 @@ The Hub detects a lost heartbeat, and the organizer-side scheduler terminates th
 - [ ] `POLICY_ID` has been confirmed; it will be provided before the official evaluation
 - [ ] The Hub gateway address has been confirmed; it will be provided before the official evaluation
 - [ ] Machine A can access the public Internet through HTTPS
-- [ ] The policy implements `Policy.infer(new_obs)` and returns `{"actions": (chunk, 14) ndarray}`; the chunk length may be chosen by the policy or agreed upon before evaluation
+- [ ] The assigned platform is confirmed (**AgileX 14D qpos** or **Franka 8D endpose**)
+- [ ] The policy implements `Policy.infer(new_obs)` and returns `{"actions": (chunk, action_dim) ndarray}` with the correct `action_dim`
 - [ ] The evaluation time window has been agreed upon with the organizers
 
 ---
