@@ -16,7 +16,7 @@
 
 ## Track 2：世界模型作为 RL 环境
 
-提交符合官方 API 的动作条件世界模型推理服务。
+提交官方可访问的 HTTPS 推理服务（须符合官方 API）。
 
 - [Track 2 赛道说明](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_benchmark_description_zh.md)
 - [Track 2 候选世界模型服务 API](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_world_model_service_api_zh.md)

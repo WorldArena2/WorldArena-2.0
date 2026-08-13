@@ -19,7 +19,7 @@ API v1 采用无状态设计：每次 `/v1/predict` 请求都携带完成预测�
 - 认证：`Authorization: Bearer <token>`；
 - API 基础地址：由参赛选手提交，例如 `https://wm.example.org`；
 - 服务不得重定向到未登记域名，也不得在响应中返回外部下载 URL；
-- token 通过赛事指定的安全渠道提交，不得写入仓库、镜像层或公开日志。
+- token 通过赛事指定的安全渠道提交，不得写入仓库或公开日志。
 
 `GET /v1/health` 可以不要求认证，其余端点必须支持 Bearer token。认证失败返回
 `401`，权限不足返回 `403`。
@@ -398,7 +398,6 @@ bearer_token（通过单独的安全渠道提交）
 api_version
 model_version
 required profile_id
-容器镜像 digest（如由官方托管）
 启动与资源需求
 技术联系人
 模型、数据和第三方依赖合规声明

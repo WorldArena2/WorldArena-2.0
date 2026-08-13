@@ -16,7 +16,7 @@ Submit generated videos and model metadata in a public Hugging Face dataset repo
 
 ## Track 2: World Model as an RL Environment
 
-Submit an action-conditioned world-model inference service that follows the official API.
+Submit an organizer-accessible HTTPS inference service that follows the official API.
 
 - [Track 2 Benchmark Description](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_benchmark_description_en.md)
 - [Track 2 Candidate World Model Service API](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track2_world_model_service_api_en.md)

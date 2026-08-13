@@ -14,7 +14,7 @@ API v1 uses a stateless design: every `/v1/predict` request carries all context 
 - Authentication: `Authorization: Bearer <token>`;
 - API base URL: supplied by the participant, for example `https://wm.example.org`;
 - The service shall not redirect to an unregistered domain or return an external download URL in a response;
-- The token shall be submitted through the competition's designated secure channel and shall not be stored in a repository, image layer, or public log.
+- The token shall be submitted through the competition's designated secure channel and shall not be stored in a repository or public log.
 
 `GET /v1/health` may be unauthenticated. All other endpoints must support Bearer-token authentication. Authentication failure returns `401`; insufficient permission returns `403`.
 
@@ -381,7 +381,6 @@ bearer_token (submitted through a separate secure channel)
 api_version
 model_version
 required profile_id
-container image digest (when hosted by the organizer)
 startup and resource requirements
 technical contact
 compliance declaration for the model, data, and third-party dependencies

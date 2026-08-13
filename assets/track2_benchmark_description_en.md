@@ -124,9 +124,9 @@ Except for short-lived memory or caching required to complete the current reques
 
 ## 8. Service and Submission Requirements
 
-Participants may submit an HTTPS service accessible to the organizer or, as directed by competition notices, a container image to be hosted by the organizer. Both submission modes must expose the same API. Each submission must include at least:
+Participants must submit an HTTPS service accessible to the organizer. The service must expose the specified API. Each submission must include at least:
 
-- A service base URL or an immutable container-image digest;
+- A service base URL;
 - API credentials, submitted separately through the designated secure channel;
 - The `model_version`, `api_version`, and capability manifest;
 - Startup, health-check, and required-resource information;
