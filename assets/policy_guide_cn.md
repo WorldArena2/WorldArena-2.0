@@ -132,10 +132,10 @@ new_obs["images"] = {
 new_obs["tactile"] = {
     # 触觉图像（来自 Xense 传感器）
     "left_gripper": {
-        "rectify": np.ndarray,   # uint8 HWC，左夹爪片触觉图
+        "rectify": np.ndarray,   # uint8 HWC (BGR)，左夹爪片触觉图
     },
     "right_gripper": {
-        "rectify": np.ndarray,   # uint8 HWC，右夹爪片触觉图
+        "rectify": np.ndarray,   # uint8 HWC (BGR)，右夹爪片触觉图
     },
 
     # 腕部力觉（来自力/力矩传感器）
