@@ -135,10 +135,10 @@ For vision-tactile tasks:
 new_obs["tactile"] = {
     # Tactile images from Xense sensors
     "left_gripper": {
-        "rectify": np.ndarray,   # uint8 HWC, tactile image from the left gripper pad
+        "rectify": np.ndarray,   # uint8 HWC (BGR), tactile image from the left gripper pad
     },
     "right_gripper": {
-        "rectify": np.ndarray,   # uint8 HWC, tactile image from the right gripper pad
+        "rectify": np.ndarray,   # uint8 HWC (BGR), tactile image from the right gripper pad
     },
 
     # Wrist force sensing from force/torque sensors
