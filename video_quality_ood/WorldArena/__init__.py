@@ -398,7 +398,18 @@ class WorldArenaBenchmark(object):
                 else:
                     raise ValueError(f"[Error] Unsupported evaluation dimension: {dimension}")
 
-                # Standardize structure and attach normalized per-video scores
+                # Standardize structure and attach normalized per-video scores.
+                #
+                # Competition evaluation note (August 2026): the official
+                # leaderboard evaluator subsequently caps the normalized
+                # Dynamic Degree, Flow Score, and Motion Smoothness of each
+                # video at the score of its matched Ground Truth video:
+                # adjusted_score = min(submission_score, matched_gt_score).
+                # Ground Truth matching and leaderboard aggregation are kept
+                # separate during the competition; the complete evaluation
+                # code will be released after the competition concludes.
+                # These evaluation-only steps do not affect model training or
+                # the generation of Track 1 submission videos.
                 results = _to_standard_results(dimension, results, data_base)
                 results = _add_normalized_scores(dimension, results)
 
