@@ -23,7 +23,14 @@ class Policy:
     - ``images['cam_high']`` / ``cam_left_wrist`` / ``cam_right_wrist``: uint8 HWC
     - ``state`` / ``joint_qpos`` / per-arm joint keys: float arrays
     - ``prompt``: task instruction from the B-side task suite
-    - ``tactile``: optional, only for tactile tasks
+    - ``tactile`` / ``tactile_profile`` / ``tactile_history``: optional tactile inputs
+      (see ``docs/policy_a_standard_protocol.md`` §6.5). Common role keys for
+      ViTAL-style tasks: ``left_gripper`` / ``right_gripper``; per-role fields
+      may include ``rectify``, ``force``, ``wrench_6d`` (plus optional
+      ``marker2d`` / ``mesh3dflow``). Always check key presence.
+    - Images (cameras + tactile ``rectify``) from the official bridge are **RGB**.
+      Do not re-decode wire JPEG with PIL unless you handle R/B swap
+      (see protocol §6.2.1).
 
     Environment variables:
     - ``POLICY_ACTION_DIM``: action vector width (default 14 = dual-arm joints)

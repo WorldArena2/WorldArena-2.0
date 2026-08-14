@@ -49,6 +49,32 @@ class Policy:
 Read the task instruction from `new_obs["prompt"]` (sourced from the B-side
 task suite / `ObservationPacket.context.task_instruction`).
 
+## Optional tactile inputs
+
+On tactile tasks the legacy bridge may populate:
+
+```python
+new_obs["tactile"]            # dict[role] -> field dict
+new_obs["tactile_profile"]    # "tactile_raw" | "tactile_derived" | "tactile_raw+tactile_derived"
+new_obs["tactile_history"]    # optional; same roles, arrays shaped (T, ...)
+```
+
+Legacy keys inside each role (not all present every time):
+
+| legacy key | meaning | guaranteed when |
+|---|---|---|
+| `rectify` | tactile image `(700,400,3)` uint8 **RGB** after official bridge（wire type name is `rectify_bgr`） | `tactile_raw` / combined profile |
+| `force` | force map `(35,20,3)` float32 N | `tactile_derived` / combined profile |
+| `wrench_6d` | `[Fx,Fy,Fz,Tx,Ty,Tz]` float32 | `tactile_derived` / combined profile |
+| `marker2d` / `mesh3dflow` | optional derived fields | only if provided |
+| `contact_state` / `contact_confidence` | optional summaries | only if provided |
+
+Canonical wire names differ slightly (`rectify_bgr` → `rectify`, `force_xyz` → `force`).
+Full mapping and role naming are in `docs/policy_a_standard_protocol.md` §6.5.
+
+**JPEG color pitfall** (cameras + tactile `rectify`): C-side encodes RGB arrays with `cv2.imencode`; the official bridge decodes with `cv2.imdecode`, so `new_obs` images are **RGB**. If you decode the raw JPEG yourself with PIL / other non-OpenCV decoders, R/B will be swapped (looks like BGR). Prefer the bridge-decoded arrays; see §6.2.1 in the protocol doc.
+Vision-only policies should ignore missing `tactile*`.
+
 ## Integration checklist
 
 1. Copy the template:

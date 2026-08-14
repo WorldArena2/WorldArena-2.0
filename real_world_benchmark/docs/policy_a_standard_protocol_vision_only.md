@@ -245,6 +245,12 @@ ws://<policy-host>:8000
 - `cam_wrist`：兼容别名；优先等于 `cam_right_wrist`，其次等于 `cam_left_wrist`
 - `cam_high_memory`：当 `global` 相机包含历史帧时写入，shape 为 `(T, H, W, 3)`
 
+规范要求：
+
+- 图像为 `HWC`，官方 legacy bridge 解出后颜色顺序为 **RGB**
+- 线协议 JPEG 由 C 端对 RGB 数组直接 `cv2.imencode`；bridge 用 `cv2.imdecode` 解回后按 RGB 使用即可
+- 若自行用 PIL 等普通解码器解 `frame_bytes`，会得到 R/B 对调（像 BGR）。完整说明见完整协议文档 §6.2.1（`policy_a_standard_protocol.md`）
+
 ### 5.2 `state`
 
 `state` 的典型形式包括：

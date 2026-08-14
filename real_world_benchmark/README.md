@@ -158,9 +158,25 @@ Hub 用 `worker_key` 把评测任务路由到对应 policy worker。
 
 仅接受 canonical packet、不走 `new_obs` 时，可加 `--no-legacy-bridge`（需自行处理 packet）。
 
+### 图像颜色（RGB / JPEG）
+
+- `new_obs["images"]` 与触觉 `rectify`：官方 bridge 解出后按 **RGB** 使用
+- 线协议 JPEG 由 C 端对 RGB 数组直接 `cv2.imencode` 生成；bridge 用 `cv2.imdecode` 解回后颜色正确
+- 若自行用 PIL 等普通解码器解 `frame_bytes` / 触觉 JPEG，会得到 **R/B 对调**（像 BGR）。详见 [协议 §6.2.1](docs/policy_a_standard_protocol.md)
+
+### 可选触觉字段（`new_obs["tactile"]`）
+
+触觉任务时，bridge 会额外写入：
+
+- `tactile[role]`：每路 pad 的字段字典（常见 key：`rectify` / `force` / `wrench_6d`，扩展还有 `marker2d` / `mesh3dflow`）
+- `tactile_profile`：`tactile_raw`（保证 `rectify`）或 `tactile_derived`（保证 `force` + `wrench_6d`）等
+- `tactile_history[role]`：可选历史栈，时间维在前
+
+线协议 `field_type`（如 `rectify_bgr`、`force_xyz`）与 legacy key 的完整对照、role 命名约定见 [A 端标准协议 §6.5](docs/policy_a_standard_protocol.md)。注意：`rectify_bgr` 是 wire 名；bridge 解出后的 `rectify` 按 RGB 用。
+
 ## 文档
 
-- [A 端标准协议](docs/policy_a_standard_protocol.md)
+- [A 端标准协议](docs/policy_a_standard_protocol.md)（含触觉字段说明）
 - [A 端标准协议（纯视觉）](docs/policy_a_standard_protocol_vision_only.md)
 - [新 Policy 接入指南](docs/new_policy_integration.md)
 - [Hub API](docs/wa-hub-v1-api.md)

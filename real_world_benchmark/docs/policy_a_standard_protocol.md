@@ -288,6 +288,7 @@ ws://<policy-host>:8000
 - `right_end_pose`
 - `tactile`
 - `tactile_profile`
+- `tactile_history`（可选；仅在请求并返回触觉历史时出现）
 
 规范要求：
 
@@ -308,8 +309,32 @@ ws://<policy-host>:8000
 
 - 图像数据通常为 `np.ndarray`
 - 图像排列必须按 `HWC`
-- 图像颜色顺序必须按 RGB
+- 图像颜色顺序必须按 **RGB**（指官方 legacy bridge 解出后的 `new_obs`）
 - `cam_high_memory` 为可选字段，仅在请求历史帧且返回值中存在历史帧时出现
+
+#### 6.2.1 JPEG 颜色通道约定（易误解，请仔细阅读）
+
+相机（以及触觉 `rectify` 图）在线协议里常以 `encoding=jpeg` 传输。当前 C 端采集链路是：
+
+1. 内存中的图像按 **RGB** 通道排列（`HWC`）
+2. 直接调用 OpenCV `cv2.imencode` 写成 JPEG（**注意**：OpenCV 默认把输入当成 BGR）
+3. A 端官方 legacy bridge 用 `cv2.imdecode` 解回 `np.ndarray`
+
+因此对 **A 端策略** 的实际效果是：
+
+| 解码方式 | 得到的通道语义 | 是否应直接当 RGB 用 |
+|---|---|---|
+| 官方 bridge / 自行 `cv2.imdecode` | 与编码前一致 → **正确 RGB** | 是 |
+| 普通 JPEG 解码（PIL、浏览器、多数非 OpenCV 看图/解码库） | **R/B 对调**，效果上像原图的 BGR | 否；需再 `[:,:,::-1]` 或等价转换 |
+
+说明：
+
+- 这不是「JPEG 文件内部存了 BGR」，JPEG 存的是 YCbCr；差异来自 **用 OpenCV 的 BGR 假设去压 RGB 数组**
+- **推荐**：直接使用 bridge 已经写入 `new_obs["images"]` 的数组，按 RGB 处理，不要自己再解 `frame_bytes`
+- 若必须自己解 canonical `frame_bytes`：请用 **`cv2.imdecode`**，并按 **RGB** 使用；不要用 PIL 等「普通解码」后直接当 RGB 喂模型，否则颜色会反
+- 用 `cv2.imshow` / `cv2.imwrite` 可视化时，这些 API 期望 BGR，需要先 `cv2.cvtColor(..., cv2.COLOR_RGB2BGR)`
+
+触觉 JPEG 字段（`rectify_bgr` → legacy `rectify`）走同一套编解码；见 §6.5。
 
 ### 6.3 `state`
 
@@ -342,29 +367,116 @@ ws://<policy-host>:8000
 
 ### 6.5 `tactile`
 
-当观测中包含触觉信息时，bridge 会写入：
+当观测中包含触觉信息时，legacy bridge 会把 canonical `tactile_observations[]`
+解码并写入 `new_obs["tactile"]`（按 `tactile_role` 分桶）。策略侧直接读
+`np.ndarray`，无需处理 JPEG / `raw+zstd` 编码。
+
+#### 6.5.1 Legacy 结构
 
 ```python
 new_obs["tactile"] = {
     "<role>": {
-        "rectify": np.ndarray,     # uint8 (700, 400, 3), BGR
-        "force": np.ndarray,       # float32 (35, 20, 3), per-cell xyz force in N
+        # wire field_type 名叫 rectify_bgr；官方 bridge（cv2）解出后按 RGB 使用，见 §6.2.1
+        "rectify": np.ndarray,     # uint8 (700, 400, 3), RGB after official bridge
+        "force": np.ndarray,       # float32 (35, 20, 3), per-cell xyz force in N；对应 force_xyz
         "wrench_6d": np.ndarray,   # float32 (6,), [Fx, Fy, Fz, Tx, Ty, Tz]
         "marker2d": np.ndarray,    # float32 (26, 14, 2), tangential marker displacement
         "mesh3dflow": np.ndarray,  # float32 (35, 20, 3), 3D mesh deformation vectors
-        "contact_state": bool,
+        "contact_state": bool,     # 可选摘要
         "contact_confidence": float,
+    }
+}
+new_obs["tactile_profile"] = "tactile_raw" | "tactile_derived" | "tactile_raw+tactile_derived"
+# 若评测请求了触觉历史，还会出现：
+new_obs["tactile_history"] = {
+    "<role>": {
+        "rectify": np.ndarray,     # (T, 700, 400, 3) uint8，时间维在前
+        "force": np.ndarray,       # (T, 35, 20, 3) float32
+        "wrench_6d": np.ndarray,   # (T, 6) float32
+        "marker2d": np.ndarray,    # (T, 26, 14, 2) float32
+        "mesh3dflow": np.ndarray,  # (T, 35, 20, 3) float32
     }
 }
 ```
 
+每个 role 下的子字段**不一定全部存在**；策略必须按 key 存在性读取。
+
+#### 6.5.2 Canonical `field_type` ↔ legacy key
+
+线协议（`ObservationPacket.tactile_observations[].fields[].field_type`）与
+`new_obs["tactile"][role]` 的对应关系：
+
+| canonical `field_type` | legacy key | 典型 shape / dtype | 语义 |
+|---|---|---|---|
+| `rectify_bgr` | `rectify` | `(700, 400, 3)` `uint8` | 校正触觉图；**名称含 bgr，但官方 bridge 解出后按 RGB 用**（与相机 JPEG 相同，见 §6.2.1） |
+| `force_xyz` | `force` | `(35, 20, 3)` `float32`，单位 N | 网格级三维力分布（不是单个 `(3,)` 力向量） |
+| `wrench_6d` | `wrench_6d` | `(6,)` `float32` | 合力/合矩 `[Fx,Fy,Fz,Tx,Ty,Tz]` |
+| `marker2d` | `marker2d` | `(26, 14, 2)` `float32` | marker 切向位移场 |
+| `mesh3dflow` | `mesh3dflow` | `(35, 20, 3)` `float32` | 3D 网格形变向量 |
+
+另有观测级摘要字段（不在 `fields[]` 内，但会写入 legacy dict）：
+
+- `contact_state` / `contact_confidence`：接触状态摘要（可选）
+- `wrench_6d`：也可能来自 `TactileObservation.wrench_6d` 摘要字段
+
+#### 6.5.3 `tactile_profile` 与必填字段
+
+`new_obs["tactile_profile"]` 表示本任务期望的触觉 profile。评测侧按 profile
+校验 canonical payload；映射到策略侧后，对应 legacy key 的**最低保证**为：
+
+| `tactile_profile` | 每 role 至少应有的 legacy keys |
+|---|---|
+| `tactile_raw` | `rectify` |
+| `tactile_derived` | `force`、`wrench_6d` |
+| `tactile_raw+tactile_derived` | `rectify`、`force`、`wrench_6d` |
+
+说明：
+
+- `marker2d` / `mesh3dflow` / `contact_*` 为扩展字段，**不由**上述基础 profile 强制要求
+- 任务套件可通过额外 required fields 要求扩展字段；策略仍应按存在性读取
+- 纯视觉任务通常不带 `tactile` / `tactile_profile`
+
+#### 6.5.4 常见 `tactile_role` 命名
+
+`<role>` 是语义角色名，**不是**机械臂硬件 ID。常见约定：
+
+| 场景 | 典型 roles | 说明 |
+|---|---|---|
+| ViTAL / UniVTAC 单触觉臂（含 `dual_arm_tactile_right`） | `left_gripper`、`right_gripper` | 表示夹爪两片 pad，不是左右机械臂 |
+| 双臂四路 pad（`dual_arm_tactile`） | `left_gripper_pad_a/b`、`right_gripper_pad_a/b` | 每臂两片 pad |
+
+策略应遍历 `new_obs["tactile"].keys()`，或按任务约定的 role 列表读取，
+不要硬编码“一定只有两个 key 且名字固定”之外的假设，除非任务文档明确给出。
+
+#### 6.5.5 读取示例
+
+```python
+tactile = new_obs.get("tactile") or {}
+profile = new_obs.get("tactile_profile")  # 可能为 None
+
+# ViTAL 风格：读两片夹爪的 rectify 图
+left = tactile.get("left_gripper") or {}
+right = tactile.get("right_gripper") or {}
+rectify_l = left.get("rectify")   # (700, 400, 3) uint8 RGB（官方 bridge），或缺失
+rectify_r = right.get("rectify")
+
+# derived 风格：读力分布与六维 wrench
+force = left.get("force")         # (35, 20, 3) float32，或缺失
+wrench = left.get("wrench_6d")    # (6,) float32，或缺失
+
+# 历史（若存在）：时间维在前
+hist = (new_obs.get("tactile_history") or {}).get("left_gripper") or {}
+force_hist = hist.get("force")    # (T, 35, 20, 3) 或缺失
+```
+
 规范要求：
 
-- `tactile` 为可选字段
-- `tactile_profile` 为可选字段
-- 策略如不处理触觉，应在缺失 `tactile` 字段时正常工作
-- 图像字段在 B/C/A canonical 传输中可能使用 `encoding=jpeg`，bridge 会在进入 `new_obs` 前解码；策略侧仍读取 `np.ndarray`
-- float tactile 字段在 canonical 传输中可能使用 `encoding=raw+zstd`，bridge 会在进入 `new_obs` 前解压；策略侧仍读取 `np.ndarray`
+- `tactile` / `tactile_profile` / `tactile_history` 均为可选字段
+- 策略如不处理触觉，应在缺失这些字段时正常工作
+- 图像类触觉字段在 B/C/A canonical 传输中可能使用 `encoding=jpeg`，bridge 会在进入 `new_obs` 前用 **`cv2.imdecode`** 解码
+- **颜色通道**：与相机相同（§6.2.1）。官方 bridge 给出的 `rectify` 按 **RGB** 使用；若队伍自行用 PIL 等普通方式解 JPEG `data_bytes`，会得到 R/B 对调（效果像 BGR）。线协议 field_type 仍叫 `rectify_bgr`，不要被名字误导
+- float 类触觉字段可能使用 `encoding=raw+zstd`，bridge 会在进入 `new_obs` 前解压
+- 策略侧一律优先读取已解码的 `np.ndarray`，不要自己重解 wire bytes，除非明确按 §6.2.1 处理
 - 如策略读取 `force`，不要将其误解为单个 `(3,)` 力向量；当前约定是整张 `(35,20,3)` 的三维力分布
 
 ## 7. `Policy.infer()` 输出规范
