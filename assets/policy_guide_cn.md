@@ -7,7 +7,7 @@ Track 3 支持**两套平台**。动作维度与观测字段取决于分配到�
 | 平台 | 动作格式 | `action_dim` | 说明 |
 |---|---|---|---|
 | **AgileX** 双臂 | `joint_absolute`（qpos） | **14** | 左臂 7 + 右臂 7 |
-| **Franka** 单臂 | `end_pose_base` | **8** | `[x, y, z, qw, qx, qy, qz, gripper]` |
+| **Franka** 单臂 | `end_pose_base` | **8** | `[x, y, z, qx, qy, qz, qw, gripper]` |
 
 ---
 
@@ -81,11 +81,11 @@ actions[t] = [左臂 j1..j6, 左夹爪, 右臂 j1..j6, 右夹爪]  # 14 维
 ### 2.3 Franka 动作语义（`end_pose_base`）
 
 ```text
-actions[t] = [x, y, z, qw, qx, qy, qz, gripper]  # 8 维
+actions[t] = [x, y, z, qx, qy, qz, qw, gripper]  # 8 维
 ```
 
 - 位置 `(x, y, z)` 位于**机器人基坐标系**（单位：米）
-- 姿态 `(qw, qx, qy, qz)` 为 **wxyz** 四元数
+- 姿态 `(qx, qy, qz, qw)` 为 **xyzw** 四元数
 - `gripper` 为夹爪开合指令
 
 数据集中用于控制的演示标签位于 `observations/end_pose[:, 0:8]`。
@@ -172,7 +172,7 @@ new_obs["tactile"] = {
     "joint_qpos": np.ndarray,            # float32 (8,)  7 关节 + 夹爪
     "joint_qpos_left": np.ndarray,       # float32 (8,)  有效臂别名
     "left_arm_joint_state": np.ndarray,  # float32 (8,)  与 joint_qpos 相同
-    "left_end_pose": np.ndarray,         # float32 (7,)  [x, y, z, qw, qx, qy, qz]
+    "left_end_pose": np.ndarray,         # float32 (7,)  [x, y, z, qx, qy, qz, qw]
     "state": np.ndarray,                 # float32 (32,) padding 状态缓冲
     "first_frame": np.ndarray,           # uint8 HWC，cam_high 的拷贝
     "prompt": str,                       # 任务自然语言描述
@@ -398,7 +398,7 @@ pip install -r requirements.txt
 取决于平台：
 
 - **AgileX：** 14 维绝对关节位置（`joint_absolute` / qpos），左臂在前、右臂在后。
-- **Franka：** 8 维绝对末端位姿（`end_pose_base`）：`[x, y, z, qw, qx, qy, qz, gripper]`，位置在机器人基坐标系，四元数为 **wxyz**。
+- **Franka：** 8 维绝对末端位姿（`end_pose_base`）：`[x, y, z, qx, qy, qz, qw, gripper]`，位置在机器人基坐标系，四元数为 **xyzw**。
 
 chunk 长度由策略自行决定，或赛前协商。
 

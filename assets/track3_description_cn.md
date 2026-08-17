@@ -153,11 +153,11 @@ AgileX 真机测试采用**绝对关节位置**（`joint_absolute` / qpos）。�
 Franka 真机测试采用**绝对末端位姿**控制（`end_pose_base`）。有效动作向量为 **8 维**：
 
 ```text
-[x, y, z, qw, qx, qy, qz, gripper]
+[x, y, z, qx, qy, qz, qw, gripper]
 ```
 
 - `x, y, z`：末端在**机器人基坐标系**下的位置（米）
-- `qw, qx, qy, qz`：姿态四元数（**wxyz**）
+- `qx, qy, qz, qw`：姿态四元数（**xyzw**）
 - `gripper`：夹爪开合指令
 
 在 HDF5 中，请使用 `observations/end_pose[:, 0:8]` 作为有效 Franka endpose 标签。

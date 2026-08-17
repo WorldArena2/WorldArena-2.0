@@ -7,7 +7,7 @@ Track 3 supports **two platforms**. Action dimension and observation fields depe
 | Platform | Action format | `action_dim` | Notes |
 |---|---|---|---|
 | **AgileX** dual-arm | `joint_absolute` (qpos) | **14** | Left 7 + right 7 |
-| **Franka** single-arm | `end_pose_base` | **8** | `[x, y, z, qw, qx, qy, qz, gripper]` |
+| **Franka** single-arm | `end_pose_base` | **8** | `[x, y, z, qx, qy, qz, qw, gripper]` |
 
 ---
 
@@ -84,11 +84,11 @@ Each row is an absolute joint-position target. Our system executes the returned 
 ### 2.3 Franka Action Semantics (`end_pose_base`)
 
 ```text
-actions[t] = [x, y, z, qw, qx, qy, qz, gripper]  # 8D
+actions[t] = [x, y, z, qx, qy, qz, qw, gripper]  # 8D
 ```
 
 - Position `(x, y, z)` is in the **robot base frame** (meters)
-- Orientation `(qw, qx, qy, qz)` is a **wxyz** quaternion
+- Orientation `(qx, qy, qz, qw)` is an **xyzw** quaternion
 - `gripper` is the gripper opening command
 
 Demonstration labels for control are stored in `observations/end_pose[:, 0:8]` in the dataset HDF5.
@@ -175,7 +175,7 @@ Verified on the live remote-inference path for the Franka endpose deployment:
     "joint_qpos": np.ndarray,               # float32 (8,)  7 joints + gripper
     "joint_qpos_left": np.ndarray,          # float32 (8,)  alias of the active arm
     "left_arm_joint_state": np.ndarray,     # float32 (8,)  same as joint_qpos
-    "left_end_pose": np.ndarray,            # float32 (7,)  [x, y, z, qw, qx, qy, qz]
+    "left_end_pose": np.ndarray,            # float32 (7,)  [x, y, z, qx, qy, qz, qw]
     "state": np.ndarray,                    # float32 (32,) padded state buffer
     "first_frame": np.ndarray,              # uint8 HWC, copy of cam_high
     "prompt": str,                          # Natural-language task description
@@ -403,7 +403,7 @@ pip install -r requirements.txt
 It depends on the platform:
 
 - **AgileX:** 14D absolute joint positions (`joint_absolute` / qpos), left arm then right arm.
-- **Franka:** 8D absolute endpose (`end_pose_base`): `[x, y, z, qw, qx, qy, qz, gripper]` in the robot base frame (quaternion **wxyz**).
+- **Franka:** 8D absolute endpose (`end_pose_base`): `[x, y, z, qx, qy, qz, qw, gripper]` in the robot base frame (quaternion **xyzw**).
 
 The chunk length may be chosen by the policy or agreed upon before evaluation.
 

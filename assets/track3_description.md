@@ -153,11 +153,11 @@ Typical recording rate: **15 FPS**.
 Real-robot testing on Franka uses **absolute endpose** control (`end_pose_base`). The effective action vector is **8D**:
 
 ```text
-[x, y, z, qw, qx, qy, qz, gripper]
+[x, y, z, qx, qy, qz, qw, gripper]
 ```
 
 - `x, y, z`: end-effector position in the **robot base frame** (meters)
-- `qw, qx, qy, qz`: orientation quaternion (**wxyz**)
+- `qx, qy, qz, qw`: orientation quaternion (**xyzw**)
 - `gripper`: gripper opening command
 
 In HDF5, use `observations/end_pose[:, 0:8]` as the active Franka endpose labels.
