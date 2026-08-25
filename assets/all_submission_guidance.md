@@ -25,6 +25,8 @@ Submit an organizer-accessible HTTPS inference service that follows the official
 
 Submit policies for real-robot manipulation tasks and follow the deployment requirements.
 
+Track 3 publishes **vision, tactile, and overall** leaderboards. Only teams that enter both vision and tactile are ranked overall, with vision : tactile weighted **7 : 3**. See the track description for details.
+
 - [Track 3 Description](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track3_description.md)
 - [Track 3 Policy Guide](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/policy_guide.md)
 

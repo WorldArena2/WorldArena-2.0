@@ -25,6 +25,8 @@
 
 提交真实机器人操作任务策略，并遵循部署要求。
 
+Track 3 设有**视觉榜、触觉榜与总榜**；仅视触同时参加的团队进入总榜，总榜按视觉 : 触觉 = **7 : 3** 加权。细则见赛道说明。
+
 - [Track 3 赛道说明](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/track3_description_cn.md)
 - [Track 3 策略指南](https://github.com/WorldArena2/WorldArena-2.0/blob/main/assets/policy_guide_cn.md)
 

@@ -13,7 +13,7 @@ Track 3 currently covers **two robot platforms**:
 | **AgileX** | Dual-arm cobot | Absolute **joint / qpos** (`joint_absolute`, 14D) | Head + left/right wrist cameras; optional Xense tactile |
 | **Franka** | Franka Emika Panda single-arm | Absolute **endpose** (`end_pose_base`, 8D) | Third-person + wrist cameras |
 
-We encourage participating World Models (WAMs) to attempt both **vision-only** and **vision-tactile** tasks on AgileX, and the Franka vision-only tasks, demonstrating generalizable real-world manipulation under visual and contact feedback.
+We encourage participating World Models (WAMs) to attempt both **vision-only** and **vision-tactile** tasks on AgileX, and the Franka vision-only tasks, demonstrating generalizable real-world manipulation under visual and contact feedback. Track 3 publishes **three leaderboards**—vision, tactile, and overall. Only teams that enter both vision and tactile are ranked on the overall board, with vision : tactile weighted **7 : 3** (see **Evaluation Metrics and Leaderboards** below).
 
 Task data is available on Hugging Face: [WorldArena/WorldArena2.0](https://huggingface.co/datasets/WorldArena/WorldArena2.0)
 
@@ -31,7 +31,6 @@ These tasks rely primarily on visual perception (head camera and left/right wris
 | Pour Water | Pick up a container and pour water into a target cup. |
 | Clean Tabletop | Remove objects from the table, classify them, and place them in designated locations. |
 | Instruction-Following Clean Tabletop | Clean the tabletop following a natural-language instruction (e.g., "move the red block to the basket"). |
-| Hand-Drip Coffee | Perform a hand-drip coffee procedure, including filter placement and pouring. |
 | Fold Clothes | Fold a piece of clothing on the table. |
 | Fold Cardboard Box | Fold a flat cardboard box into its assembled shape. |
 
@@ -69,7 +68,6 @@ The real-robot demonstration data for Track 3 is hosted on Hugging Face: [WorldA
 | `clean_table_instruction_follow` | Instruction-Following Clean Tabletop | AgileX Vision-Only |
 | `fold_box` | Fold Cardboard Box | AgileX Vision-Only |
 | `fold_shirt` | Fold Clothes | AgileX Vision-Only |
-| `pour_over_coffee` | Hand-Drip Coffee | AgileX Vision-Only |
 | `pour_water` | Pour Water | AgileX Vision-Only (+ Franka variant) |
 | `wipe_table` | Wipe Table | AgileX Vision-Only (+ Franka variant) |
 | `insert` | Insert Two-Pin Plug | AgileX Vision-Tactile |
@@ -78,7 +76,7 @@ The real-robot demonstration data for Track 3 is hosted on Hugging Face: [WorldA
 
 ### Data Volume
 
-On AgileX, each task contains approximately **100** demonstration episodes, except `pour_over_coffee` (Hand-Drip Coffee), which currently has **83** valid demonstrations. Franka demonstrations are provided for the three vision-only tasks listed above.
+On AgileX, each task contains approximately **100** demonstration episodes. Franka demonstrations are provided for the three vision-only tasks listed above.
 
 ---
 
@@ -164,9 +162,25 @@ In HDF5, use `observations/end_pose[:, 0:8]` as the active Franka endpose labels
 
 ---
 
-## Evaluation Metric
+## Evaluation Metrics and Leaderboards
 
-Each task is evaluated by its **real-robot success rate**. A trial is considered successful if the robot completes the full task within the allowed number of steps and without safety intervention. The final ranking aggregates success rates across tasks, with optional normalization by task difficulty.
+Each task is evaluated by its **real-robot success rate**. A trial is considered successful if the robot completes the full task within the allowed number of steps and without safety intervention. Within each track direction, scores may be aggregated across tasks with optional normalization by task difficulty.
+
+Track 3 publishes **three leaderboards**:
+
+| Leaderboard | Covered tasks | Eligibility |
+|---|---|---|
+| **Vision** | Vision-only tasks (AgileX vision-only + Franka vision-only) | Teams evaluated on the vision track |
+| **Tactile** | Vision-tactile tasks (AgileX vision-tactile) | Teams evaluated on the tactile track |
+| **Overall** | Vision + tactile | Teams that participate in **both** vision and tactile |
+
+The overall score weights vision and tactile scores **7 : 3**:
+
+```text
+Overall score = 0.7 × Vision score + 0.3 × Tactile score
+```
+
+Teams that enter only one direction appear on the corresponding single-track leaderboard, but are **not** ranked on the overall leaderboard.
 
 ---
 
@@ -182,7 +196,6 @@ We rate each task on a scale of **1 (easiest) to 10 (hardest)** based on the req
 | Pour Water | 6 | Requires controlled tilting and visual tracking of liquid level. |
 | Clean Tabletop | 5 | Object picking, classification, and relocation; moderate precision. |
 | Instruction-Following Clean Tabletop | 6 | Adds language grounding on top of tabletop cleaning. |
-| Hand-Drip Coffee | 9 | Multi-step fine manipulation with fragile objects and liquid handling. |
 | Fold Clothes | 9 | Deformable-object manipulation; wrinkle handling and precise folding. |
 | Fold Cardboard Box | 9 | Rigid-part assembly with precise creasing and corner alignment. |
 
@@ -206,7 +219,8 @@ We rate each task on a scale of **1 (easiest) to 10 (hardest)** based on the req
 
 ## Participation Guidance
 
-- Teams may submit policies for any subset of tasks / platforms.
+- Teams may submit policies for any subset of tasks / platforms, and may enter only the vision or only the tactile leaderboard.
+- To appear on the **overall** leaderboard, teams must participate in **both** vision and tactile; the overall score weights vision : tactile = **7 : 3**.
 - We encourage WAMs to compete in **both vision-only and vision-tactile categories** on AgileX, as the latter tests contact-aware world modeling.
 - **Control must match the platform**:
   - AgileX → **14D joint / qpos** (`joint_absolute`)
