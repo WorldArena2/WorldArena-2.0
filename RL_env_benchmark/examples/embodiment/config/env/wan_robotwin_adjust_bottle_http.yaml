@@ -1,0 +1,56 @@
+env_type: wan_wm_http
+task_suite_name: robotwin_adjust_bottle
+wm_env_type: robotwin
+
+total_num_envs: 2
+
+auto_reset: False
+ignore_terminations: False
+max_steps_per_rollout_epoch: 8
+max_episode_steps: 8
+
+use_rel_reward: True
+reward_coef: 1.0
+
+reset_gripper_open: False
+is_eval: False
+
+seed: 0
+group_size: 2
+use_fixed_reset_state_ids: True
+use_ordered_reset_state_ids: False
+specific_reset_id: null
+
+http:
+  server_url: http://127.0.0.1:18080
+  timeout: 600.0
+
+video_cfg:
+  save_video: False
+  info_on_video: True
+  video_base_dir: ./wan_http_video/train
+
+enable_offload: False
+
+wan_wm_hf_ckpt_path: ${oc.env:WAN_ROBOTWIN_ADJUST_BOTTLE_CKPT,/path/to/RLinf-Wan-RobotWin-AdjustBottle}
+
+VAE_path: ${.wan_wm_hf_ckpt_path}/Wan2.2_VAE.pth
+model_path: ${.wan_wm_hf_ckpt_path}/dit_model.safetensors
+initial_image_path: ${.wan_wm_hf_ckpt_path}/dataset/
+
+enable_kir: False
+
+num_inference_steps: 5
+chunk: 8
+condition_frame_length: 5
+image_size: [256, 256]
+num_frames: 13
+
+action_dim: 14
+action_key: abs_action
+print_chunk_rewards: True
+
+reward_model:
+  type: RoboTwinT5CrossAttn
+  from_pretrained: ${oc.env:ROBOTWIN_REWARD_MODEL_PATH,/path/to/robotwin_reward_model.pth}
+  t5_model_name: ${oc.env:T5_MODEL_PATH,/path/to/t5-base}

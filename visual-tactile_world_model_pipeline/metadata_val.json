@@ -1,0 +1,202 @@
+[
+  {
+    "hdf5_path": "grasp_classify/clean/0.hdf5",
+    "task": "grasp_classify",
+    "ep_idx": 0
+  },
+  {
+    "hdf5_path": "grasp_classify/clean/1.hdf5",
+    "task": "grasp_classify",
+    "ep_idx": 1
+  },
+  {
+    "hdf5_path": "grasp_classify/clean/2.hdf5",
+    "task": "grasp_classify",
+    "ep_idx": 2
+  },
+  {
+    "hdf5_path": "grasp_classify/clean/3.hdf5",
+    "task": "grasp_classify",
+    "ep_idx": 3
+  },
+  {
+    "hdf5_path": "grasp_classify/clean/5.hdf5",
+    "task": "grasp_classify",
+    "ep_idx": 5
+  },
+  {
+    "hdf5_path": "insert_HDMI/clean/0.hdf5",
+    "task": "insert_HDMI",
+    "ep_idx": 0
+  },
+  {
+    "hdf5_path": "insert_HDMI/clean/1.hdf5",
+    "task": "insert_HDMI",
+    "ep_idx": 1
+  },
+  {
+    "hdf5_path": "insert_HDMI/clean/2.hdf5",
+    "task": "insert_HDMI",
+    "ep_idx": 2
+  },
+  {
+    "hdf5_path": "insert_HDMI/clean/3.hdf5",
+    "task": "insert_HDMI",
+    "ep_idx": 3
+  },
+  {
+    "hdf5_path": "insert_HDMI/clean/5.hdf5",
+    "task": "insert_HDMI",
+    "ep_idx": 5
+  },
+  {
+    "hdf5_path": "insert_hole/clean/0.hdf5",
+    "task": "insert_hole",
+    "ep_idx": 0
+  },
+  {
+    "hdf5_path": "insert_hole/clean/1.hdf5",
+    "task": "insert_hole",
+    "ep_idx": 1
+  },
+  {
+    "hdf5_path": "insert_hole/clean/2.hdf5",
+    "task": "insert_hole",
+    "ep_idx": 2
+  },
+  {
+    "hdf5_path": "insert_hole/clean/3.hdf5",
+    "task": "insert_hole",
+    "ep_idx": 3
+  },
+  {
+    "hdf5_path": "insert_hole/clean/5.hdf5",
+    "task": "insert_hole",
+    "ep_idx": 5
+  },
+  {
+    "hdf5_path": "insert_tube/clean/0.hdf5",
+    "task": "insert_tube",
+    "ep_idx": 0
+  },
+  {
+    "hdf5_path": "insert_tube/clean/1.hdf5",
+    "task": "insert_tube",
+    "ep_idx": 1
+  },
+  {
+    "hdf5_path": "insert_tube/clean/2.hdf5",
+    "task": "insert_tube",
+    "ep_idx": 2
+  },
+  {
+    "hdf5_path": "insert_tube/clean/3.hdf5",
+    "task": "insert_tube",
+    "ep_idx": 3
+  },
+  {
+    "hdf5_path": "insert_tube/clean/5.hdf5",
+    "task": "insert_tube",
+    "ep_idx": 5
+  },
+  {
+    "hdf5_path": "lift_bottle/clean/0.hdf5",
+    "task": "lift_bottle",
+    "ep_idx": 0
+  },
+  {
+    "hdf5_path": "lift_bottle/clean/1.hdf5",
+    "task": "lift_bottle",
+    "ep_idx": 1
+  },
+  {
+    "hdf5_path": "lift_bottle/clean/2.hdf5",
+    "task": "lift_bottle",
+    "ep_idx": 2
+  },
+  {
+    "hdf5_path": "lift_bottle/clean/3.hdf5",
+    "task": "lift_bottle",
+    "ep_idx": 3
+  },
+  {
+    "hdf5_path": "lift_bottle/clean/5.hdf5",
+    "task": "lift_bottle",
+    "ep_idx": 5
+  },
+  {
+    "hdf5_path": "lift_can/clean/0.hdf5",
+    "task": "lift_can",
+    "ep_idx": 0
+  },
+  {
+    "hdf5_path": "lift_can/clean/1.hdf5",
+    "task": "lift_can",
+    "ep_idx": 1
+  },
+  {
+    "hdf5_path": "lift_can/clean/2.hdf5",
+    "task": "lift_can",
+    "ep_idx": 2
+  },
+  {
+    "hdf5_path": "lift_can/clean/3.hdf5",
+    "task": "lift_can",
+    "ep_idx": 3
+  },
+  {
+    "hdf5_path": "lift_can/clean/5.hdf5",
+    "task": "lift_can",
+    "ep_idx": 5
+  },
+  {
+    "hdf5_path": "pull_out_key/clean/0.hdf5",
+    "task": "pull_out_key",
+    "ep_idx": 0
+  },
+  {
+    "hdf5_path": "pull_out_key/clean/1.hdf5",
+    "task": "pull_out_key",
+    "ep_idx": 1
+  },
+  {
+    "hdf5_path": "pull_out_key/clean/2.hdf5",
+    "task": "pull_out_key",
+    "ep_idx": 2
+  },
+  {
+    "hdf5_path": "pull_out_key/clean/3.hdf5",
+    "task": "pull_out_key",
+    "ep_idx": 3
+  },
+  {
+    "hdf5_path": "pull_out_key/clean/5.hdf5",
+    "task": "pull_out_key",
+    "ep_idx": 5
+  },
+  {
+    "hdf5_path": "put_bottle_in_shelf/clean/0.hdf5",
+    "task": "put_bottle_in_shelf",
+    "ep_idx": 0
+  },
+  {
+    "hdf5_path": "put_bottle_in_shelf/clean/1.hdf5",
+    "task": "put_bottle_in_shelf",
+    "ep_idx": 1
+  },
+  {
+    "hdf5_path": "put_bottle_in_shelf/clean/2.hdf5",
+    "task": "put_bottle_in_shelf",
+    "ep_idx": 2
+  },
+  {
+    "hdf5_path": "put_bottle_in_shelf/clean/3.hdf5",
+    "task": "put_bottle_in_shelf",
+    "ep_idx": 3
+  },
+  {
+    "hdf5_path": "put_bottle_in_shelf/clean/5.hdf5",
+    "task": "put_bottle_in_shelf",
+    "ep_idx": 5
+  }
+]
