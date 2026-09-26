@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WorldArena 2.0 · Track 1 Top-10 Evaluation Videos</title>
+  <style>
+    :root {
+      --ink: #151515;
+      --muted: #686868;
+      --line: #d9d9d9;
+      --paper: #fff;
+      --accent: #a76565;
+      --accent-soft: #fbf3f3;
+      --accent-line: #e7cfcf;
+      --max: 1160px;
+      --wide: 1420px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 16px;
+      line-height: 1.72;
+      text-rendering: optimizeLegibility;
+    }
+    a { color: inherit; text-underline-offset: 3px; }
+    button { font: inherit; }
+    .site-header {
+      border-bottom: 1px solid #ececec;
+      background: rgba(255,255,255,.97);
+    }
+    .header-inner {
+      width: min(calc(100% - 48px), var(--wide));
+      min-height: 70px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .wordmark { font-size: 20px; font-weight: 700; letter-spacing: -.02em; white-space: nowrap; }
+    .header-actions { display: flex; align-items: center; gap: 24px; }
+    .top-nav { display: flex; flex-wrap: wrap; gap: 22px; font-size: 13px; }
+    .top-nav a { color: #333; text-decoration: none; }
+    .top-nav a:hover { text-decoration: underline; }
+    .language-switch { display: inline-flex; border: 1px solid #bdbdbd; font-size: 12px; line-height: 1; white-space: nowrap; }
+    .language-switch button {
+      border: 0;
+      border-radius: 0;
+      padding: 8px 10px;
+      color: #444;
+      background: #fff;
+      cursor: pointer;
+    }
+    .language-switch button + button { border-left: 1px solid #bdbdbd; }
+    .language-switch button[aria-pressed="true"] { color: #fff; background: #151515; }
+    main { padding-bottom: 90px; }
+    .hero {
+      width: min(calc(100% - 48px), var(--max));
+      margin: 0 auto;
+      padding: 82px 0 54px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(280px, .85fr);
+      gap: 64px;
+      align-items: start;
+    }
+    .eyebrow {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 860px;
+      margin: 0 0 22px;
+      font-size: clamp(36px, 5vw, 58px);
+      line-height: 1.08;
+      letter-spacing: -.045em;
+      font-weight: 500;
+    }
+    .hero-lead { max-width: 760px; margin: 0; font-size: 18px; line-height: 1.62; }
+    .hero-card { border: 1px solid #858585; padding: 26px; }
+    .hero-card h2 { margin: 0 0 14px; font-size: 15px; font-weight: 700; }
+    .metric-list { margin: 0; padding: 0; list-style: none; }
+    .metric-list li {
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      gap: 12px;
+      padding: 10px 0;
+      border-top: 1px solid #ececec;
+      font-size: 14px;
+    }
+    .metric-list li:first-child { border-top: 0; padding-top: 0; }
+    .metric-list b { font-weight: 700; }
+    .metric-list span { color: #333; }
+    .article { width: min(calc(100% - 48px), var(--max)); margin: 0 auto; }
+    .article-section { padding: 18px 0 8px; }
+    .toolbar {
+      width: min(calc(100% - 48px), var(--wide));
+      margin: 0 auto 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .chip, .filter {
+      border: 1px solid #bdbdbd;
+      background: #fff;
+      color: #222;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .chip[aria-pressed="true"], .filter[aria-pressed="true"] {
+      background: #151515;
+      color: #fff;
+      border-color: #151515;
+    }
+    .chip.gt { border-color: #c4b48a; }
+    .chip small { color: inherit; opacity: .72; margin-left: 6px; }
+    .video-section {
+      width: min(calc(100% - 48px), var(--wide));
+      margin: 0 auto;
+      padding: 18px 0 40px;
+    }
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .video-card { border: 1px solid #bdbdbd; background: #fff; }
+    .video-card video {
+      display: block;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      background: #111;
+      object-fit: contain;
+    }
+    .video-meta { padding: 12px 13px 14px; border-top: 1px solid #d8d8d8; }
+    .video-label { display: block; font-size: 14px; font-weight: 700; }
+    .video-spec { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .tag {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 2px 7px;
+      border: 1px solid var(--line);
+      font-size: 11px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .tag.ood { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); }
+    .video-note { margin-top: 22px; color: var(--muted); font-size: 13px; }
+    footer { border-top: 1px solid var(--line); padding: 28px 24px; color: var(--muted); font-size: 13px; text-align: center; }
+    [lang-en], [lang-zh] { display: none; }
+    html[lang="en"] [lang-en] { display: inline; }
+    html[lang="zh"] [lang-zh] { display: inline; }
+    @media (max-width: 1100px) {
+      .hero { grid-template-columns: 1fr; gap: 18px; }
+      .video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 720px) {
+      .header-inner, .hero, .article, .video-section, .toolbar { width: min(calc(100% - 28px), var(--max)); }
+      .top-nav { display: none; }
+      .video-grid { grid-template-columns: 1fr; }
+      h1 { font-size: 36px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="wordmark">WorldArena 2.0</div>
+      <div class="header-actions">
+        <nav class="top-nav">
+          <a href="#overview"><span lang-en>Overview</span><span lang-zh>概览</span></a>
+          <a href="#models"><span lang-en>Models</span><span lang-zh>模型</span></a>
+          <a href="#gallery"><span lang-en>Videos</span><span lang-zh>视频</span></a>
+        </nav>
+        <div class="language-switch">
+          <button type="button" id="btn-en" aria-pressed="false">English</button>
+          <button type="button" id="btn-zh" aria-pressed="true">中文</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="overview">
+      <div>
+        <p class="eyebrow">
+          <span lang-en>WorldArena 2.0 · Track 1</span>
+          <span lang-zh>WorldArena 2.0 · Track 1</span>
+        </p>
+        <h1>
+          <span lang-en>Track 1 top-10 evaluation videos</span>
+          <span lang-zh>Track 1 前十名评测视频</span>
+        </h1>
+        <p class="hero-lead">
+          <span lang-en>This announcement publishes the Track 1 top-10 evaluation videos on the 50 official tasks, with one original video per task. Twenty-five tasks are in-distribution scenes on a white table (ID). Twenty-five are out-of-distribution scenes on a colored or textured table (OOD). Switching models keeps the task set unchanged and replaces only the corresponding video. Ground Truth is the official reference and is not a participating submission.</span>
+          <span lang-zh>本公告发布 Track 1 前十名模型在 50 个官方任务上的评测视频，每个任务对应一条原始评测视频。25 个任务为白桌场景（ID），25 个任务为彩桌或纹理桌场景（OOD）。切换模型时任务保持不变，仅更换对应视频。Ground Truth 为官方参考，不是参赛提交。</span>
+        </p>
+      </div>
+      <aside class="hero-card">
+        <h2>
+          <span lang-en>At a glance</span>
+          <span lang-zh>公告摘要</span>
+        </h2>
+        <ul class="metric-list">
+          <li>
+            <b><span lang-en>Track</span><span lang-zh>赛道</span></b>
+            <span lang-en>Track 1</span>
+            <span lang-zh>Track 1</span>
+          </li>
+          <li>
+            <b><span lang-en>Models</span><span lang-zh>模型</span></b>
+            <span lang-en>Top 10, with Ground Truth</span>
+            <span lang-zh>前十名，并附 Ground Truth</span>
+          </li>
+          <li>
+            <b><span lang-en>Tasks</span><span lang-zh>任务</span></b>
+            <span lang-en>50 official tasks, one video per task</span>
+            <span lang-zh>50 个官方任务，每任务 1 条视频</span>
+          </li>
+          <li>
+            <b><span lang-en>Scenes</span><span lang-zh>场景</span></b>
+            <span lang-en>25 ID, white table · 25 OOD, colored or textured table</span>
+            <span lang-zh>25 个白桌（ID）· 25 个彩桌或纹理桌（OOD）</span>
+          </li>
+          <li>
+            <b><span lang-en>Videos</span><span lang-zh>视频</span></b>
+            <span lang-en>Original evaluation videos, same length and resolution as submitted</span>
+            <span lang-zh>原始评测视频，时长与分辨率与评测提交一致</span>
+          </li>
+        </ul>
+      </aside>
+    </section>
+
+    <section class="article article-section" id="models">
+      <p class="eyebrow">
+        <span lang-en>Models</span>
+        <span lang-zh>模型</span>
+      </p>
+      <p class="hero-lead" style="font-size:16px;margin-bottom:18px">
+        <span lang-en>Select a model to view its evaluation videos on the 50 tasks below. Ground Truth is provided for reference only.</span>
+        <span lang-zh>选择模型后，下方将显示该模型在 50 个任务上的评测视频。Ground Truth 仅供对照。</span>
+      </p>
+    </section>
+
+    <div class="toolbar" id="models-bar"></div>
+    <div class="toolbar" id="filter-bar"></div>
+    <section class="video-section" id="gallery"></section>
+  </main>
+
+  <footer>
+    <span lang-en>WorldArena Evaluation Team</span>
+    <span lang-zh>WorldArena 评测团队</span>
+  </footer>
+
+  <script id="gallery-data" type="application/json">{"note":"Track 1 formal1000 top-10 video gallery. White table = ID, colored table = OOD.","n_tasks":50,"n_ood":25,"n_id":25,"episodes":[27,86,107,114,123,161,162,164,203,284,318,353,372,414,425,463,539,542,785,807,850,853,937,947,976,10,38,54,55,147,264,267,294,323,388,412,533,537,538,564,598,610,666,678,713,832,851,855,856,857],"models":[{"id":"GT","rank":0,"title":"Ground Truth","org":"Official reference","score":null,"folder":"GT"},{"id":"WorldIncept","rank":1,"title":"WorldIncept","org":"Visincept","score":72.33,"folder":"VisBot-max"},{"id":"BWM-Turbo","rank":2,"title":"BWM-Turbo","org":"Tongji University","score":71.49,"folder":"BWM-Turbo"},{"id":"DWM","rank":3,"title":"DWM","org":"Alibaba Group","score":71.15,"folder":"DWM"},{"id":"Waterloo","rank":4,"title":"Waterloo","org":"USTC","score":71.05,"folder":"Waterloo"},{"id":"ActiFlow","rank":5,"title":"ActiFlow","org":"CMARI (Hong Kong)","score":70.83,"folder":"ActiFlow"},{"id":"PrismWorld","rank":6,"title":"PrismWorld","org":"Alibaba Group","score":70.7,"folder":"PrismWorld"},{"id":"sonata-wm","rank":7,"title":"sonata-wm","org":"Independent researcher","score":70.62,"folder":"sonata-wm"},{"id":"Concerto-AWM","rank":8,"title":"Concerto-AWM","org":"Independent researcher","score":70.56,"folder":"Concerto-AWM"},{"id":"Snowl-WM","rank":9,"title":"Snowl-WM","org":"Independent researcher","score":70.55,"folder":"Snowl-WM"},{"id":"K1-World","rank":10,"title":"K1-World","org":"Alibaba Group","score":70.48,"folder":"K1-World"}],"tasks":[{"episode":27,"task":"place_soap_box","title_en":"Put soap in the box","title_zh":"肥皂放进盒子","prompt":"Move the soap bar inside the blue box with angled edges using the left arm.","ood":true,"id":1},{"episode":86,"task":"blocks_ranking_rgb","title_en":"Rank blocks by color","title_zh":"按颜色排列物块","prompt":"Place red block and blue block side by side on the hardcover black book.","ood":true,"id":2},{"episode":107,"task":"move_playingcard_away","title_en":"Place the playing cards","title_zh":"放置扑克盒","prompt":"Put the palm-sized playingcards carton midway between the medium-sized drinking cup and the medium rectangular tissue-box.","ood":true,"id":3},{"episode":114,"task":"place_empty_cup","title_en":"Place the cup","title_zh":"杯子放到杯垫","prompt":"Place the brown and white boxdrink on the round coaster with light streaks.","ood":true,"id":4},{"episode":123,"task":"place_mouse_pad","title_en":"Place cube and mouse","title_zh":"方块和鼠标入位","prompt":"Place the rubikscube made of square tiles on the bright orange rectangular tray, then set the mouse the dark gray mouse next to the plastic body keyboard.","ood":true,"id":5},{"episode":161,"task":"place_eraser_book","title_en":"Place eraser on the book","title_zh":"橡皮放到本子上","prompt":"Place the grey base topped with black soft felt on the closed book with visible pages.","ood":true,"id":6},{"episode":162,"task":"place_object_between","title_en":"Place cube between objects","title_zh":"方块放到中间","prompt":"Pick up the small square rubikscube and set it between the cylindrical cup with grainy surface and the smooth black rectangular tissue box.","ood":true,"id":7},{"episode":164,"task":"blocks_ranking_size","title_en":"Clear blocks from keyboard","title_zh":"清开键盘前物块","prompt":"Clear red block and blue block from in front of the keyboard with purple knob to the rectangular green tray.","ood":true,"id":8},{"episode":203,"task":"place_bread_bottle_tray","title_en":"Place bread and bottle on tray","title_zh":"面包瓶子放托盘","prompt":"Place the medium-sized golden bread and the plastic bottle with juice inside on the tray for serving items.","ood":true,"id":9},{"episode":284,"task":"place_bread_bottle","title_en":"Place bread and bottle","title_zh":"放置面包和瓶子","prompt":"Use the left arm for the bread with firm crust edges and the right arm for the bottle with red screw-on cap, placing both on the bright orange tray for serving.","ood":true,"id":10},{"episode":318,"task":"place_speaker_keyboard","title_en":"Place speaker by keyboard","title_zh":"音箱放到键盘旁","prompt":"Move the compact speaker with side vents near the keyboard with colorful keycaps using the right arm.","ood":true,"id":11},{"episode":353,"task":"place_cube_tray","title_en":"Place cube on tray","title_zh":"方块放到托盘","prompt":"Pick up the smooth rubikscube with black frame edges and place it on the smooth glossy orange medium tray, clearing the multi-colored keyboard.","ood":true,"id":12},{"episode":372,"task":"place_container_plate","title_en":"Place fruit on the plate","title_zh":"水果放盘子","prompt":"Pick up the small fruit shaped like apple and set it on the round plate.","ood":true,"id":13},{"episode":414,"task":"place_remote_notebook","title_en":"Move remote onto notebook","title_zh":"遥控器放到本子上","prompt":"Place the black remotecontrol on the writing notebook with hard cover.","ood":true,"id":14},{"episode":425,"task":"place_drink_coaster","title_en":"Place drink on coaster","title_zh":"饮料放到杯垫","prompt":"Place the white boxdrink with sturdy lid on the light gray streaked wooden coaster.","ood":true,"id":15},{"episode":463,"task":"place_soap_toothpaste","title_en":"Put soap and toothpaste in the box","title_zh":"牙膏肥皂入盒","prompt":"Put the plastic tube for holding toothpaste and the soap with smooth edges into the rectangular storage box with grooves.","ood":true,"id":16},{"episode":539,"task":"stack_blocks_two","title_en":"Stack two blocks","title_zh":"叠两个物块","prompt":"Place red block on the black book, then stack blue block on red block.","ood":true,"id":17},{"episode":542,"task":"place_mouse_remote","title_en":"Place mouse and remote","title_zh":"鼠标遥控器入位","prompt":"Arrange the compact oval-shaped mouse and the white body remotecontrol beside the keyboard with standard key layout.","ood":true,"id":18},{"episode":785,"task":"place_object_tray","title_en":"Place object on tray","title_zh":"放到托盘","prompt":"Move the object closest to the metal cup onto the dark green serving tray.","ood":true,"id":19},{"episode":807,"task":"place_eraser_mouse","title_en":"Place eraser and mouse","title_zh":"橡皮和鼠标入位","prompt":"Place the rectangular black eraser for whiteboards on the medium-sized plastic tray, then set the mouse the mouse with scroll wheel next to the smooth plastic gray keyboard.","ood":true,"id":20},{"episode":850,"task":"place_mouse_keyboard","title_en":"Move the mouse to the keyboard","title_zh":"鼠标移到键盘旁","prompt":"Move the oval-shaped mouse near the keyboard for typing and gaming using the right arm.","ood":true,"id":21},{"episode":853,"task":"place_brush_notebook","title_en":"Place brush on notebook","title_zh":"笔放到本子上","prompt":"Place the plastic handheld brush-pen in dark gray on the black notebook.","ood":true,"id":22},{"episode":937,"task":"place_cans_plasticbox","title_en":"Put cans in the box","title_zh":"罐子放塑料盒","prompt":"Drop the cleaning item the soap with uneven tan grains into the rectangular plasticbox with rounded edges.","ood":true,"id":23},{"episode":947,"task":"lift_pot","title_en":"Lift the pot","title_zh":"端起锅","prompt":"Put the rubikscube with orange sides midway between the cup with smooth surface and the bright green leaves with smooth white pot.","ood":true,"id":24},{"episode":976,"task":"place_bread_can_tray","title_en":"Place bread and can on tray","title_zh":"面包罐子放托盘","prompt":"Move the medium-sized rectangular bread to the rectangular plastic tray, then place the red can with smooth metallic texture beside it.","ood":true,"id":25},{"episode":10,"task":"dump_bin_bigbin","title_en":"Dump the bin","title_zh":"倾倒垃圾桶","prompt":"Pick the light gray smooth tabletrashbin up, pour all balls inside bin","ood":false,"id":26},{"episode":38,"task":"adjust_bottle","title_en":"Stand the bottle upright","title_zh":"扶正瓶子","prompt":"Carefully grab the brown bottle with red label head-up","ood":false,"id":27},{"episode":54,"task":"click_alarmclock","title_en":"Press the clock button","title_zh":"按下钟按钮","prompt":"Use the left arm to press the palm-sized dark blue clock's top center button.","ood":false,"id":28},{"episode":55,"task":"rotate_qrcode","title_en":"Rotate the QR code","title_zh":"旋转二维码","prompt":"Use the left arm to grab the paymentsign, rotate, and face the QR code towards you.","ood":false,"id":29},{"episode":147,"task":"pick_yellow_bottles","title_en":"Pick the yellow bottles","title_zh":"抓黄色瓶子","prompt":"Catch both the drink bottle with rounded yellow lid and the yellow bottle with a green design quickly.","ood":false,"id":30},{"episode":264,"task":"press_stapler","title_en":"Press the stapler","title_zh":"按订书机","prompt":"Apply pressure to the handheld red stapler using one arm the right arm.","ood":false,"id":31},{"episode":267,"task":"shake_bottle","title_en":"Shake the bottle","title_zh":"摇瓶子","prompt":"Use the left arm to grab the medium bottle for beverages and shake it.","ood":false,"id":32},{"episode":294,"task":"place_a2b_right","title_en":"Place A right of B","title_zh":"放到右侧","prompt":"Use the right arm for red block to set it leftmost, continue with the left arm to position green block next to red block, and finish by placing blue block using the right arm to the right of green block.","ood":false,"id":33},{"episode":323,"task":"shake_bottle_horizontally","title_en":"Shake the bottle sideways","title_zh":"水平摇瓶","prompt":"Lift the smooth plastic bottle with white cap and move it side-to-side.","ood":false,"id":34},{"episode":388,"task":"place_can_basket","title_en":"Place can in basket","title_zh":"罐子放篮子","prompt":"Lift the drink can with smooth red finish, set it in the woven basket, and elevate the woven basket.","ood":false,"id":35},{"episode":412,"task":"click_bell","title_en":"Click the bell","title_zh":"按铃","prompt":"Guide the left arm to click the small blue and brown bell's top center.","ood":false,"id":36},{"episode":533,"task":"place_fan","title_en":"Place the fan","title_zh":"放置风扇","prompt":"Use the left arm to pick up the small fan and place it on Turquoise mat.","ood":false,"id":37},{"episode":537,"task":"handover_mic","title_en":"Hand over the microphone","title_zh":"递交麦克风","prompt":"Grasp the microphone with slider switch, then give it to the other arm.","ood":false,"id":38},{"episode":538,"task":"place_a2b_left","title_en":"Place A left of B","title_zh":"放到左侧","prompt":"Set the solid blue cleansing soap to the left of the playful green toycar","ood":false,"id":39},{"episode":564,"task":"place_phone_stand","title_en":"Place the phone","title_zh":"放置手机","prompt":"Move the black shiny rectangle phone onto the small plastic phonestand.","ood":false,"id":40},{"episode":598,"task":"hanging_mug","title_en":"Hang the mug","title_zh":"挂杯子","prompt":"Lift the mug with thick sturdy handle, give it a turn, and hang it onto the medium rack with protruding rods.","ood":false,"id":41},{"episode":610,"task":"open_laptop","title_en":"Open the laptop","title_zh":"打开笔记本","prompt":"Gently lift the medium-sized laptop with black body using the right arm","ood":false,"id":42},{"episode":666,"task":"turn_switch","title_en":"Turn the switch","title_zh":"拨开关","prompt":"Toggle the switch trapezoid shape brown marking with the right arm.","ood":false,"id":43},{"episode":678,"task":"open_microwave","title_en":"Open the microwave","title_zh":"打开微波炉","prompt":"Engage the gray microwave with two control knobs's handle and open it.","ood":false,"id":44},{"episode":713,"task":"scan_object","title_en":"Scan the object","title_zh":"扫描物体","prompt":"Use one arm to grab the gun-shaped scanner, the other to hold the compact golden tea box, and scan it.","ood":false,"id":45},{"episode":832,"task":"place_object_basket","title_en":"Place object in basket","title_zh":"放到篮子","prompt":"Grab the toycar with black tires with one arm, drop the toycar with black tires in the basket for holding items.","ood":false,"id":46},{"episode":851,"task":"beat_block_hammer","title_en":"Hammer the block","title_zh":"锤打物块","prompt":"Pick up the hammer with two-tone handle using the left arm then beat","ood":false,"id":47},{"episode":855,"task":"stamp_seal","title_en":"Stamp the seal","title_zh":"盖章","prompt":"Use the right arm to grab the seal with embossed patterns, press Brown","ood":false,"id":48},{"episode":856,"task":"handover_block","title_en":"Hand over the block","title_zh":"递交物块","prompt":"Pick up and handover the red block.","ood":false,"id":49},{"episode":857,"task":"stack_blocks_three","title_en":"Stack three blocks","title_zh":"叠三个物块","prompt":"Pick up red block, green block, and blue block in sequence and position them in a left-to-right row.","ood":false,"id":50}]}</script>
+  <script>
+    let DATA = null;
+    let modelId = "WorldIncept";
+    let filter = "all";
+    let lang = "zh";
+
+    const gridHost = document.getElementById("gallery");
+    const modelsBar = document.getElementById("models-bar");
+    const filterBar = document.getElementById("filter-bar");
+
+    function setLang(next) {
+      lang = next;
+      document.documentElement.lang = next === "zh" ? "zh" : "en";
+      document.getElementById("btn-en").setAttribute("aria-pressed", next === "en");
+      document.getElementById("btn-zh").setAttribute("aria-pressed", next === "zh");
+      render();
+    }
+
+    const VIDEO_BASE = "https://manifoldai-training-1425174216.cos.ap-shanghai.myqcloud.com/worldarena-public/track1-top10/";
+
+    function videoSrc(folder, episode) {
+      const q = new URLSearchParams(location.search).get("base");
+      const base = (q || VIDEO_BASE).replace(/\/?$/, "/");
+      return base + folder + "/episode" + episode + ".mp4";
+    }
+
+    function allVideos() {
+      return [...document.querySelectorAll("#gallery video")];
+    }
+
+    function renderBars() {
+      modelsBar.innerHTML = "";
+      DATA.models.forEach(m => {
+        const b = document.createElement("button");
+        b.className = "chip" + (m.id === "GT" ? " gt" : "");
+        b.setAttribute("aria-pressed", m.id === modelId);
+        const rank = m.rank ? ("#" + m.rank + " ") : "";
+        const score = m.score != null ? m.score.toFixed(2) : "GT";
+        b.innerHTML = rank + m.title + "<small>" + score + "</small>";
+        b.onclick = () => { modelId = m.id; render(); };
+        modelsBar.appendChild(b);
+      });
+      filterBar.innerHTML = "";
+      [["play", lang === "zh" ? "全部播放" : "Play all"], ["pause", lang === "zh" ? "全部暂停" : "Pause all"]].forEach(([k, label]) => {
+        const b = document.createElement("button");
+        b.className = "filter";
+        b.textContent = label;
+        b.onclick = () => {
+          allVideos().forEach(v => {
+            if (k === "play") v.play();
+            else v.pause();
+          });
+        };
+        filterBar.appendChild(b);
+      });
+      [["all", "All 全部"], ["id", "ID 白桌"], ["ood", "OOD 彩桌"]].forEach(([k, label]) => {
+        const b = document.createElement("button");
+        b.className = "filter";
+        b.setAttribute("aria-pressed", k === filter);
+        b.textContent = label;
+        b.onclick = () => { filter = k; render(); };
+        filterBar.appendChild(b);
+      });
+    }
+
+    function renderGrid() {
+      const model = DATA.models.find(m => m.id === modelId) || DATA.models[1];
+      const tasks = DATA.tasks.filter(t => {
+        if (filter === "ood") return t.ood;
+        if (filter === "id") return !t.ood;
+        return true;
+      });
+      gridHost.innerHTML = "";
+      const grid = document.createElement("div");
+      grid.className = "video-grid";
+      tasks.forEach(t => {
+        const card = document.createElement("article");
+        card.className = "video-card";
+        const title = lang === "zh" ? t.title_zh : t.title_en;
+        const split = t.ood
+          ? (lang === "zh" ? "OOD 彩桌" : "OOD · colored table")
+          : (lang === "zh" ? "ID 白桌" : "ID · white table");
+        const video = document.createElement("video");
+        video.controls = true;
+        video.playsInline = true;
+        video.preload = "metadata";
+        video.src = videoSrc(model.folder, t.episode);
+        video.setAttribute("controlslist", "nodownload");
+        const meta = document.createElement("div");
+        meta.className = "video-meta";
+        meta.innerHTML =
+          '<span class="video-label">Task ' + t.id + " · " + title + "</span>" +
+          '<span class="video-spec">Episode ' + t.episode + " · " + model.title + (model.id !== "GT" && model.org ? " · " + model.org : "") + "</span>" +
+          '<span class="tag' + (t.ood ? " ood" : "") + '">' + split + "</span>";
+        card.appendChild(video);
+        card.appendChild(meta);
+        grid.appendChild(card);
+      });
+      gridHost.appendChild(grid);
+      const note = document.createElement("p");
+      note.className = "video-note";
+      note.textContent = lang === "zh"
+        ? "视频可暂停、拖动进度条或继续播放。"
+        : "Videos may be paused, scrubbed, or resumed in the player.";
+      gridHost.appendChild(note);
+    }
+
+    function render() {
+      renderBars();
+      renderGrid();
+    }
+
+    document.getElementById("btn-en").onclick = () => setLang("en");
+    document.getElementById("btn-zh").onclick = () => setLang("zh");
+
+    try {
+      DATA = JSON.parse(document.getElementById("gallery-data").textContent);
+      if (!DATA || !DATA.models) throw new Error("empty");
+      render();
+    } catch (err) {
+      fetch("data.json")
+        .then(r => r.json())
+        .then(d => { DATA = d; render(); })
+        .catch(e => { gridHost.textContent = "Failed to load gallery data: " + e; });
+    }
+  </script>
+</body>
+</html>

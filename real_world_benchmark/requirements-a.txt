@@ -1,0 +1,7 @@
+msgpack>=1.0
+numpy>=1.23
+opencv-python-headless>=4.8
+requests>=2.31
+scipy>=1.10
+websocket-client>=1.6
+websockets>=12.0

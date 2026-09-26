@@ -1,0 +1,35 @@
+{
+  "api_version": "1.0",
+  "model_version": "example-model-version",
+  "profiles": [
+    {
+      "profile_id": "wa2-track2-robotwin-adjustbottle-v1",
+      "image": {
+        "encoding": "png_base64",
+        "color_space": "RGB",
+        "height": 256,
+        "width": 256,
+        "channels": 3
+      },
+      "context_frames": { "min": 5, "max": 5 },
+      "prediction_frames": { "min": 8, "max": 8 },
+      "action": {
+        "dtype": "float32",
+        "dimension": 14,
+        "representation": "robotwin_aloha_agilex_abs14"
+      },
+      "state": { "supported": false, "dimension": null },
+      "instruction": { "supported": true }
+    }
+  ],
+  "limits": {
+    "max_batch_size": 8,
+    "max_request_bytes": 33554432,
+    "max_concurrency": 1,
+    "recommended_timeout_ms": 600000
+  },
+  "determinism": {
+    "seed_supported": true,
+    "same_seed_same_pixels": true
+  }
+}
